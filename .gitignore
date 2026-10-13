@@ -7,3 +7,4 @@ __pycache__/
 /profiles/
 /smokes/
 /previews/
+.DS_Store
