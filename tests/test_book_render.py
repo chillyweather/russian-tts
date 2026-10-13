@@ -77,7 +77,7 @@ def test_manifest_records_fingerprints_and_measured_audio(book: BookProject) -> 
     assert chunks
     for record in chunks:
         assert record["status"] == "ok"
-        assert record["attempts"] == [{"attempt": 1, "status": "ok", "error": None}]
+        assert [(a["attempt"], a["status"], a["error"]) for a in record["attempts"]] == [(1, "ok", None)]
         audio = book.target_dir("c001", "short") / record["audio_file"]
         assert audio.read_bytes()[:4] == b"RIFF"
         assert hashlib.sha256(audio.read_bytes()).hexdigest() == record["audio_sha256"]
@@ -116,7 +116,7 @@ def test_failed_chunk_is_recorded_and_others_continue(book: BookProject) -> None
 
 def test_changed_engine_config_is_refused_without_force(book: BookProject) -> None:
     render_chapter(book, "c001", FakeEngine(precision="bf16"), "short", limits=ChunkLimits(), force_new_run=False)
-    with pytest.raises(ValidationError, match="--force-new-run"):
+    with pytest.raises(ValidationError, match="--accept-config-change"):
         render_chapter(
             book, "c001", FakeEngine(precision="fp16"), "short", limits=ChunkLimits(), force_new_run=False
         )
@@ -175,7 +175,7 @@ def test_cli_render_with_failed_chunk_exits_1(
     monkeypatch.setitem(
         base.ENGINE_FACTORIES,
         "fake",
-        lambda **options: FakeEngine(raise_on=frozenset({1}), **options),
+        lambda **options: FakeEngine(raise_on=frozenset({1, 2, 3}), **options),
     )
-    code = main(["book", "render", str(book.directory), "--chapter", "c001", "--engine", "fake"])
+    code = main(["book", "render", str(book.directory), "--chapter", "c001", "--engine", "fake", "--retries", "0"])
     assert code == 1

@@ -17,8 +17,9 @@ from rutts.book.boundaries import (
     split_chapter,
 )
 from rutts.book.chunking import TARGET_SECONDS, limits_for_target, plan_chunks
-from rutts.book.project import install_narrator, load_project
-from rutts.book.render import render_chapter, summarize_targets
+from rutts.book.project import install_narrator, load_project, read_json
+from rutts.book.render import MANIFEST_FILE, ConfigChangeRequired, render_chapter, summarize_targets
+from rutts.book.runstate import read_run_state, status_lines
 from rutts.book.text_import import import_text
 from rutts.engines import base
 from rutts.evaluation.cli import add_eval_parser, run_eval
@@ -121,8 +122,20 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument(
         "--force-new-run",
         action="store_true",
-        help="archive chunks rendered with a different engine or narrator",
+        help="archive the whole chapter's chunks and start a new run",
     )
+    render.add_argument(
+        "--accept-config-change",
+        action="store_true",
+        help="regenerate every chunk rendered with a different engine or narrator",
+    )
+    render.add_argument("--retries", type=int, default=2, help="extra attempts per chunk (default 2)")
+    render.add_argument("--retry-failed", action="store_true", help="retry chunks previously marked failed")
+
+    status = book_commands.add_parser("status", help="show render progress from the project files")
+    status.add_argument("directory", type=Path)
+    status.add_argument("--chapter")
+    status.add_argument("--target", choices=sorted(TARGET_SECONDS))
 
     assemble = book_commands.add_parser("assemble", help="assemble a chapter master from its chunks")
     assemble.add_argument("directory", type=Path)
@@ -321,6 +334,8 @@ def _book_plan(args: argparse.Namespace) -> int:
 def _book_render(args: argparse.Namespace) -> int:
     if args.max_chars is not None and args.max_chars <= 0:
         return _report(["--max-chars must be positive"])
+    if args.retries < 0:
+        return _report(["--retries must be zero or positive"])
     if args.offline:
         os.environ["HF_HUB_OFFLINE"] = "1"
     project = load_project(args.directory)
@@ -333,20 +348,57 @@ def _book_render(args: argparse.Namespace) -> int:
             args.target,
             limits=limits_for_target(args.target, args.max_chars),
             force_new_run=args.force_new_run,
+            accept_config_change=args.accept_config_change,
+            retries=args.retries,
+            retry_failed=args.retry_failed,
+            progress=print,
         )
+    except ConfigChangeRequired as exc:
+        return _report(exc.messages)
+    except KeyboardInterrupt:
+        print(
+            f"interrupted: rendering {args.chapter} ({args.target}) stopped; saved chunks are kept. "
+            "Run the same render command again to resume.",
+            file=sys.stderr,
+        )
+        return 130
     except ValidationError:
         raise
     except Exception as exc:
-        print(f"error: render stopped: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            f"error: render stopped: {type(exc).__name__}: {exc}; saved chunks are kept, "
+            "run the same render command again to resume",
+            file=sys.stderr,
+        )
         return 1
     records: list[dict[str, Any]] = manifest["chunks"]
-    failed = sum(1 for record in records if record["status"] == "failed")
+    failed = [record["id"] for record in records if record["status"] == "failed"]
     ok = sum(1 for record in records if record["status"] == "ok")
     print(
         f"rendered {args.chapter} ({args.target}): {len(records)} chunk(s), {ok} ok, "
-        f"{failed} failed; chunks in {project.target_dir(args.chapter, args.target)}"
+        f"{len(failed)} failed; chunks in {project.target_dir(args.chapter, args.target)}"
     )
-    return 0 if failed == 0 else 1
+    for chunk_id in failed:
+        print(f"failed chunk (needs review): {chunk_id}")
+    return 0 if not failed else 1
+
+
+def _book_status(args: argparse.Namespace) -> int:
+    project = load_project(args.directory)
+    chapters = [args.chapter] if args.chapter else [chapter.id for chapter in project.read_source().chapters]
+    if args.chapter:
+        project.read_source().chapter(args.chapter)
+    for chapter_id in chapters:
+        targets = [args.target] if args.target else sorted(TARGET_SECONDS)
+        rendered = [target for target in targets if (project.target_dir(chapter_id, target) / MANIFEST_FILE).is_file()]
+        if not rendered:
+            print(f"{chapter_id}: not rendered")
+        for target in rendered:
+            directory = project.target_dir(chapter_id, target)
+            records: list[dict[str, Any]] = read_json(directory / MANIFEST_FILE)["chunks"]
+            for line in status_lines(chapter_id, target, records, read_run_state(directory)):
+                print(line)
+    return 0
 
 
 def _book_assemble(args: argparse.Namespace) -> int:
@@ -396,6 +448,7 @@ BOOK_COMMANDS = {
     "narrator": _book_narrator,
     "plan": _book_plan,
     "render": _book_render,
+    "status": _book_status,
     "assemble": _book_assemble,
     "compare-targets": _book_compare,
 }

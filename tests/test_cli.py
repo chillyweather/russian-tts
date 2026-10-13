@@ -206,8 +206,8 @@ def test_failure_is_recorded_after_retry_budget(
     excerpt = results["excerpts"][0]
     assert excerpt["status"] == "failed"
     assert [a["error"] for a in excerpt["attempts"]] == [
-        "RuntimeError: fake failure on call 1",
-        "RuntimeError: fake failure on call 2",
+        "ValueError: fake failure on call 1",
+        "ValueError: fake failure on call 2",
     ]
     assert all(a["file"] is None for a in excerpt["attempts"])
     assert results["summary"] == {"excerpts": 1, "ok": 0, "failed": 1}
@@ -313,7 +313,7 @@ def test_smoke_records_render_failure_as_infeasible(
     record = json.loads((out / "smoke.json").read_text(encoding="utf-8"))
     assert record["status"] == "failed"
     assert record["feasible"] is False
-    assert record["error"] == "RuntimeError: fake failure on call 1"
+    assert record["error"] == "ValueError: fake failure on call 1"
     assert record["file"] is None
     assert record["audio_duration_seconds"] is None
 

@@ -112,7 +112,7 @@ def test_metrics_missing_from_the_manifest_are_unavailable(book: Path, tmp_path:
 
 
 def test_failed_chunk_makes_the_trial_incomplete(book: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    register_fake(monkeypatch, "fake_c", precision="bf16", raise_on=frozenset({2}))
+    register_fake(monkeypatch, "fake_c", precision="bf16", raise_on=frozenset({2, 3, 4}))
     assert _render(book, "fake_c", "bf16") == 1
     assert _assemble(book) == 1
     out = tmp_path / "eval"

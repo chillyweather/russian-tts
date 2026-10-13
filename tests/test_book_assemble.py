@@ -158,3 +158,10 @@ def test_compare_targets_reports_measured_durations(
     assert "long: 2 chunk(s), 2 ok" in out
     assert "measured min 0.50 s, mean 0.50 s, max 0.50 s" in out
     assert "estimate" not in out.lower()
+
+
+def test_clause_boundaries_have_their_own_pause() -> None:
+    from rutts.book.assemble import Pauses
+
+    assert Pauses().seconds("clause") == 0.15
+    assert Pauses().to_dict()["clause"] == 0.15

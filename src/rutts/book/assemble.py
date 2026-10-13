@@ -17,6 +17,7 @@ from rutts.validation import ValidationError
 @dataclass(frozen=True)
 class Pauses:
     sentence: float = 0.35
+    clause: float = 0.15
     paragraph: float = 0.7
     scene: float = 1.5
     chapter_end: float = 1.0
@@ -24,6 +25,7 @@ class Pauses:
     def seconds(self, boundary: str) -> float:
         return {
             "sentence": self.sentence,
+            "clause": self.clause,
             "paragraph": self.paragraph,
             "scene": self.scene,
             "chapter_end": self.chapter_end,

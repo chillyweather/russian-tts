@@ -50,14 +50,18 @@ A book project is a self-contained directory: `source/original.txt` (byte-identi
 .venv/bin/rutts book narrator books/novel --profile profiles/narrator
 .venv/bin/rutts book plan books/novel --chapter c001 --target short
 .venv/bin/rutts book render books/novel --chapter c001 --engine qwen-mlx --precision bf16 --target short --offline
+.venv/bin/rutts book status books/novel --chapter c001 --target short
 .venv/bin/rutts book assemble books/novel --chapter c001 --target short
 .venv/bin/rutts book compare-targets books/novel --chapter c001
 ```
 
 - Chapter markers are lines starting with `Глава` or `Часть` (also `ГЛАВА` and `ЧАСТЬ`) followed by a number or title, markdown `# Title` lines, and lines matching `--chapter-regex`. Without markers the whole file is one chapter.
 - `plan` durations are estimates at 14 characters per second. `compare-targets` reports durations measured from the rendered audio.
-- `render` refuses a chapter already rendered with a different engine configuration or narrator unless `--force-new-run` is given, which moves the old `chunks/<chapter>/` to `chunks/<chapter>.prev-<n>/`.
-- `render` exits with code 1 when any chunk fails. `assemble` writes `<chapter>.incomplete.wav` and exits with code 1 when chunks are missing or failed, printing each one.
+- `render` resumes: each chunk is saved atomically, and a rerun reuses only chunks whose text, engine, narrator, audio hash and sample rate still match. Invalid chunks are regenerated and their reason is kept in the record's `history` (`missing_audio`, `corrupt_audio`, `text_changed`, `config_changed`). Ctrl-C leaves saved chunks intact and exits with code 130.
+- A changed engine or narrator exits with code 2 unless `--accept-config-change` is given; the flag regenerates the chapter and moves old audio to `chunks/<chapter>/<target>/superseded/`. `--force-new-run` archives the whole chapter to `chunks/<chapter>.prev-<n>/` instead.
+- `render` retries a failed chunk up to `--retries` times (default 2). Failed attempts keep their error, exception type, timing and resources; invalid audio is kept as `<chunk>.attempt-<n>.failed.wav`. A chunk that still fails is flagged `needs_review`, the other chunks continue, and the run exits with code 1. Use `--retry-failed` on a later run to try flagged chunks again.
+- `render` exits with code 1 on a fatal runtime error (for example out of memory), leaving the project resumable. `assemble` writes `<chapter>.incomplete.wav` and exits with code 1 when chunks are missing or failed, printing each one.
+- `book status` reads progress from disk: completed, reused, remaining and failed chunks, elapsed and cumulative time, recent failures and chunks needing review. Run state is in `chunks/<chapter>/<target>/run.json`.
 
 ## Blind listening evaluation
 

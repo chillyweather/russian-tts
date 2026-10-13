@@ -76,6 +76,7 @@ class _Atom:
     start: int
     end: int
     paragraph_end: bool = False
+    boundary: str = "sentence"
 
 
 def limits_for_target(target: str, max_chars: int | None = None) -> ChunkLimits:
@@ -151,15 +152,18 @@ def _space_cut(text: str, start: int, end: int, max_chars: int) -> int:
 
 def _split_long(
     text: str, start: int, end: int, max_chars: int, quoted: list[bool]
-) -> list[tuple[int, int]]:
-    pieces: list[tuple[int, int]] = []
+) -> list[tuple[int, int, str]]:
+    """Split a sentence into pieces; each piece records the boundary kind that ends it."""
+    pieces: list[tuple[int, int, str]] = []
     while end - start > max_chars:
         cut = _clause_cut(text, start, end, max_chars, quoted)
+        kind = "clause"
         if cut is None:
             cut = _space_cut(text, start, end, max_chars)
-        pieces.append((start, cut))
+            kind = "sentence"
+        pieces.append((start, cut, kind))
         start = cut
-    pieces.append((start, end))
+    pieces.append((start, end, "sentence"))
     return pieces
 
 
@@ -167,9 +171,9 @@ def _paragraph_atoms(segment: NarrationSegment, max_chars: int) -> list[_Atom]:
     text = segment.text
     quoted = _inside_quotes(text)
     atoms = [
-        _Atom(segment.id, piece_start, piece_end)
+        _Atom(segment.id, piece_start, piece_end, boundary=kind)
         for start, end in _sentence_spans(text, quoted)
-        for piece_start, piece_end in _split_long(text, start, end, max_chars, quoted)
+        for piece_start, piece_end, kind in _split_long(text, start, end, max_chars, quoted)
     ]
     if atoms:
         atoms[-1] = replace(atoms[-1], paragraph_end=True)
@@ -195,7 +199,7 @@ def _render(atoms: Sequence[_Atom], texts: dict[str, str]) -> tuple[list[ChunkSp
 
 
 def _boundary_for(atom: _Atom) -> str:
-    return "paragraph" if atom.paragraph_end else "sentence"
+    return "paragraph" if atom.paragraph_end else atom.boundary
 
 
 def plan_chunks(

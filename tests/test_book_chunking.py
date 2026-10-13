@@ -124,3 +124,20 @@ def test_project_helper_builds_planning_segments_without_excluded_text(tmp_path:
     project = load_project(tmp_path / "book")
     segments = project.planning_segments("c001")
     assert [s.kind for s in segments] == ["heading", "paragraph", "scene_break", "paragraph"]
+
+
+def test_chunk_ending_at_a_clause_split_is_marked_clause() -> None:
+    clause = "Он шёл по длинной дороге к реке"
+    sentence = ", ".join([clause] * 20) + "."
+    segment = NarrationSegment(
+        id="c001-s0001",
+        source_segment_id="c001-s0001",
+        chapter_id="c001",
+        kind="paragraph",
+        text=sentence,
+    )
+    chunks = plan_chunks([segment], "short", ChunkLimits(max_chars=600))
+    assert len(chunks) == 2
+    assert chunks[0].boundary_after == "clause"
+    assert chunks[1].boundary_after == "chapter_end"
+    assert chunks[0].text.endswith(",")

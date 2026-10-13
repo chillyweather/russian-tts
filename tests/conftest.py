@@ -14,26 +14,41 @@ FAKE_SAMPLE_RATE = 24000
 
 
 class FakeEngine:
-    """Deterministic engine: returns a short sine wave, optionally failing per call."""
+    """Deterministic engine: returns a short sine wave, optionally failing or interrupting per call.
+
+    ``raise_on`` and ``fail_texts`` raise ``ValueError`` (a recoverable chunk failure);
+    ``runtime_error_on`` raises ``RuntimeError`` (fatal for the run); ``interrupt_on`` raises
+    ``KeyboardInterrupt``; ``fail_attempts`` fails the first K attempts for a text;
+    ``silent_texts`` returns silent audio for a text on every attempt.
+    """
 
     def __init__(
         self,
         precision: str = "bf16",
         *,
         raise_on: frozenset[int] = frozenset(),
+        runtime_error_on: frozenset[int] = frozenset(),
+        interrupt_on: frozenset[int] = frozenset(),
         silent_on: frozenset[int] = frozenset(),
+        silent_texts: frozenset[str] = frozenset(),
         fail_load: bool = False,
         fail_texts: frozenset[str] = frozenset(),
+        fail_attempts: dict[str, int] | None = None,
         amplitude: float = 0.2,
     ) -> None:
         self.precision = precision
         self.amplitude = amplitude
         self.raise_on = raise_on
+        self.runtime_error_on = runtime_error_on
+        self.interrupt_on = interrupt_on
         self.silent_on = silent_on
+        self.silent_texts = silent_texts
         self.fail_load = fail_load
         self.fail_texts = fail_texts
+        self.fail_attempts = fail_attempts or {}
         self.received: list[str] = []
         self.calls = 0
+        self.loads = 0
         self.loaded = False
         self.unloads = 0
 
@@ -51,6 +66,7 @@ class FakeEngine:
         )
 
     def load(self) -> None:
+        self.loads += 1
         if self.fail_load:
             raise RuntimeError("fake failure while loading")
         self.loaded = True
@@ -62,12 +78,19 @@ class FakeEngine:
     def synthesize(self, text: str, narrator: NarratorProfile) -> SynthesisResult:
         self.calls += 1
         self.received.append(text)
+        if self.calls in self.interrupt_on:
+            raise KeyboardInterrupt
+        if self.calls in self.runtime_error_on:
+            raise RuntimeError(f"fake runtime failure on call {self.calls}")
+        attempts = self.received.count(text)
         if text in self.fail_texts or self.calls in self.raise_on:
-            raise RuntimeError(f"fake failure on call {self.calls}")
+            raise ValueError(f"fake failure on call {self.calls}")
+        if attempts <= self.fail_attempts.get(text, 0):
+            raise ValueError(f"fake transient failure on attempt {attempts}")
         duration = 0.5
         t = np.arange(int(duration * FAKE_SAMPLE_RATE)) / FAKE_SAMPLE_RATE
         samples = self.amplitude * np.sin(2 * np.pi * 440 * t).astype(np.float32)
-        if self.calls in self.silent_on:
+        if self.calls in self.silent_on or text in self.silent_texts:
             samples = np.zeros_like(samples)
         return SynthesisResult(samples=samples, sample_rate=FAKE_SAMPLE_RATE)
 
