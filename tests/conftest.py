@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 import pytest
 import soundfile as sf
@@ -9,6 +13,8 @@ import soundfile as sf
 from rutts.engines import base
 from rutts.engines.base import EngineConfig, SynthesisResult
 from rutts.narrator import NarratorProfile
+from rutts.verification import asr
+from rutts.verification.asr import Transcript, TranscriberConfig, Word
 
 FAKE_SAMPLE_RATE = 24000
 
@@ -37,8 +43,10 @@ class FakeEngine:
         fail_texts: frozenset[str] = frozenset(),
         fail_attempts: dict[str, int] | None = None,
         amplitude: float = 0.2,
+        speech_rate: float | None = None,
     ) -> None:
         self.precision = precision
+        self.speech_rate = speech_rate
         self.amplitude = amplitude
         self.raise_on = raise_on
         self.runtime_error_on = runtime_error_on
@@ -92,7 +100,7 @@ class FakeEngine:
             raise ValueError(f"fake failure on call {self.calls}")
         if attempts <= self.fail_attempts.get(text, 0):
             raise ValueError(f"fake transient failure on attempt {attempts}")
-        duration = 0.5
+        duration = len(text) / self.speech_rate if self.speech_rate else 0.5
         t = np.arange(int(duration * FAKE_SAMPLE_RATE)) / FAKE_SAMPLE_RATE
         samples = self.amplitude * np.sin(2 * np.pi * 440 * t).astype(np.float32)
         if self.calls in self.silent_on or text in self.silent_texts:
@@ -112,6 +120,79 @@ def fake_engine_factory(monkeypatch: pytest.MonkeyPatch) -> list[FakeEngine]:
 
     monkeypatch.setitem(base.ENGINE_FACTORIES, "fake", factory)
     return created
+
+
+class FakeTranscriber:
+    """Scripted ASR: ``heard`` maps an audio file stem to the words heard; other files echo their chunk text."""
+
+    def __init__(
+        self,
+        heard: dict[str, str],
+        *,
+        fail_stems: frozenset[str] = frozenset(),
+        fatal_stems: frozenset[str] = frozenset(),
+        fail_load: bool = False,
+    ) -> None:
+        self.heard = heard
+        self.fail_stems = fail_stems
+        self.fatal_stems = fatal_stems
+        self.fail_load = fail_load
+        self.loads = 0
+        self.unloads = 0
+        self.calls: list[str] = []
+        self.loaded = False
+
+    @property
+    def config(self) -> TranscriberConfig:
+        return TranscriberConfig(
+            transcriber_id="fake-asr",
+            model_repo="fake/asr",
+            model_revision="1" * 40,
+            runtime_name="fake-runtime",
+            runtime_version="1.0",
+            language="ru",
+        )
+
+    def load(self) -> None:
+        self.loads += 1
+        if self.fail_load:
+            raise RuntimeError("fake transcriber failed to load")
+        self.loaded = True
+
+    def unload(self) -> None:
+        self.loaded = False
+        self.unloads += 1
+
+    def transcribe(self, path: Path) -> Transcript:
+        stem = path.stem
+        self.calls.append(stem)
+        if stem in self.fatal_stems:
+            raise MemoryError("fake out of memory")
+        if stem in self.fail_stems:
+            raise RuntimeError("fake decoder failure")
+        text = self.heard.get(stem)
+        if text is None:
+            text = _chunk_text(path, stem)
+        return Transcript(words=[Word(text=item, start=round(i * 0.4, 2), end=round(i * 0.4 + 0.4, 2)) for i, item in enumerate(text.split())])
+
+
+def _chunk_text(audio: Path, chunk_id: str) -> str:
+    plan: dict[str, Any] = json.loads((audio.parent / "plan.json").read_text(encoding="utf-8"))
+    return str(next(chunk["text"] for chunk in plan["chunks"] if chunk["id"] == chunk_id))
+
+
+@pytest.fixture
+def fake_transcriber(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeTranscriber]:
+    """Registers ``fake-asr``; call the returned function to create the instance the CLI will use."""
+    created: list[FakeTranscriber] = []
+
+    def install(heard: dict[str, str] | None = None, **options: object) -> FakeTranscriber:
+        transcriber = FakeTranscriber(heard or {}, **options)  # type: ignore[arg-type]
+        created.append(transcriber)
+        return transcriber
+
+    monkeypatch.setitem(asr.TRANSCRIBER_FACTORIES, "fake-asr", lambda: created[-1])
+    return install
 
 
 def write_reference_wav(path: Path, seconds: float = 5.0, silent: bool = False) -> Path:

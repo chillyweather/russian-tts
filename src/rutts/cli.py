@@ -27,6 +27,7 @@ from rutts.pronunciation.cli import add_pronunciation_parser
 from rutts.narrator import create_profile, load_profile
 from rutts.preview import Excerpt, load_excerpts, load_suite, run_preview
 from rutts.smoke import run_smoke
+from rutts.verification.cli import add_verification_parser
 from rutts.validation import ValidationError, read_text_file, text_problems
 
 PREVIEW_CHARS = 70
@@ -147,6 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("directory", type=Path)
     compare.add_argument("--chapter", required=True)
     add_pronunciation_parser(book_commands)
+    add_verification_parser(book_commands)
     add_eval_parser(commands)
     return parser
 

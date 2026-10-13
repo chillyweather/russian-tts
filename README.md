@@ -84,6 +84,20 @@ Narration text is derived: source text plus ordered corrections. `source/source.
 - `regenerate` renders only invalidated chunks and writes `review/joins/<chunk>.wav`: previous chunk, pause, regenerated chunk, pause, next chunk.
 - An override whose source text no longer matches is reported as stale and not applied. Splits and merges keep overrides attached to their source segment.
 
+## Verification
+
+Verification flags possible narration errors in rendered chunks. It runs in its own process, loads only the Whisper transcriber (`mlx-community/whisper-large-v3-turbo`, revision `a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb`, language `ru`) and unloads it when done.
+
+```sh
+.venv/bin/rutts book verify books/novel --chapter c001 --target short --offline
+.venv/bin/rutts book findings books/novel --chapter c001 --target short --chunk c001-k0002
+```
+
+- Findings are written to `review/findings/<chapter>/<target>/<chunk>.json` (expected text, raw transcript with word times, normalised comparison, findings) and summarised in `report.md`. Each result is tied to the chunk's `audio_sha256` and fingerprint, so a chunk is re-checked only after its audio changes or with `--recheck`.
+- Finding types: `omission`, `addition`, `substitution`, `repetition`, `uncertain_number`, `missing_audio`, `transcription_failed`, plus audio flags for internal silence over 2 s, leading or trailing silence over 1.5 s, speaking rate outside 8 to 25 characters per second, and clipping.
+- Comparison ignores case, punctuation, stress marks and the ё/е difference, and treats spelled-out and digit numbers as equivalent. ASR spelling noise on long words is reported as `minor`.
+- Limits: ASR checks what words were heard, not how they were said. It cannot judge lexical stress, е/ё pronunciation, prosody or listening comfort; every chunk file and the report say so, and a chunk without findings is labelled `no_automatic_findings`, not verified. Listen to the chapter before accepting it.
+
 ## Blind listening evaluation
 
 Run the preview (or `book render` for chapter trials) for each candidate first, then:
