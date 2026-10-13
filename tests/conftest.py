@@ -46,8 +46,10 @@ class FakeEngine:
         fail_attempts: dict[str, int] | None = None,
         amplitude: float = 0.2,
         speech_rate: float | None = None,
+        spike: float = 0.0,
     ) -> None:
         self.precision = precision
+        self.spike = spike
         self.speech_rate = speech_rate
         self.amplitude = amplitude
         self.raise_on = raise_on
@@ -105,6 +107,8 @@ class FakeEngine:
         duration = len(text) / self.speech_rate if self.speech_rate else 0.5
         t = np.arange(int(duration * FAKE_SAMPLE_RATE)) / FAKE_SAMPLE_RATE
         samples = self.amplitude * np.sin(2 * np.pi * 440 * t).astype(np.float32)
+        if self.spike:
+            samples[len(samples) // 2] = self.spike
         if self.calls in self.silent_on or text in self.silent_texts:
             samples = np.zeros_like(samples)
         return SynthesisResult(samples=samples, sample_rate=FAKE_SAMPLE_RATE)

@@ -29,7 +29,7 @@ def add_job_parser(book_commands: Any) -> None:
     generate.add_argument("--accept-config-change", action="store_true", help="supersede a different job configuration")
     generate.add_argument("--offline", action="store_true")
     generate.add_argument("--assemble", action="store_true", help="assemble each chapter once it is complete")
-    generate.add_argument("--max-swap-gb", type=float, help="stop when swap used exceeds this (default 4)")
+    generate.add_argument("--max-swap-gb", type=float, help="stop when swap grows by more than this since the job started (default 4)")
     generate.add_argument("--min-free-percent", type=float, help="stop when free memory is below this on two samples (default 5)")
     generate.add_argument("--max-rss-gb", type=float, help="stop when process peak RSS exceeds this (default 13)")
     generate.set_defaults(book_handler=_generate)

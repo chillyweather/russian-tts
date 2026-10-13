@@ -79,7 +79,7 @@ A book project is a self-contained directory: `source/original.txt` (byte-identi
 - Chapters that are already valid are verified by fingerprint and not re-rendered; a fully valid book never loads the engine. Excluded chapters are skipped and listed with their reasons.
 - `job/state.json` (rewritten after every chunk) holds the status (`running`, `completed`, `incomplete`, `interrupted`, `stopped_resource_pressure`, `failed`), per-chapter counts and failed chunk ids, cumulative elapsed time, the last 10 failures, observed throughput and the resource summary. A time-left estimate appears only after three chunks have been rendered in the job, computed from measured render seconds per character.
 - `job/coverage.json` is rebuilt at the end of every invocation: each source segment with its inclusion or exclusion reason, covering chunk ids, their status and audio hash, totals, the uncovered segments and `complete`.
-- Each chunk is preceded and followed by a resource sample (`job/resources.jsonl`). Swap above `--max-swap-gb` (default 4), free memory below `--min-free-percent` (default 5) on two consecutive samples, or peak RSS above `--max-rss-gb` (default 13) stops the job before the next chunk with exit code 3 and writes `job/diagnostics/<timestamp>.json`. Metrics that cannot be read are logged as `unavailable` and never stop the job. An engine memory error also stops with exit code 3.
+- Each chunk is preceded and followed by a resource sample (`job/resources.jsonl`). Swap growth since the job started above `--max-swap-gb` (default 4), free memory below `--min-free-percent` (default 5) on two consecutive samples, or peak RSS above `--max-rss-gb` (default 13) stops the job before the next chunk with exit code 3 and writes `job/diagnostics/<timestamp>.json`. Metrics that cannot be read are logged as `unavailable` and never stop the job. An engine memory error also stops with exit code 3.
 - Ctrl-C leaves the project resumable with state `interrupted` and exit code 130. Re-running the same command continues from the first chunk that is not valid, across chapter boundaries.
 - Exit codes: 0 complete, 1 incomplete (failed chunks are listed; the others continue), 2 refused, 3 stopped for resource pressure, 130 interrupted.
 - `book check-portable` verifies that no project file stores an absolute path or a path outside the project. Model weights are referenced by repository id and revision only, so a moved project resumes without re-rendering.
@@ -182,6 +182,12 @@ Verification flags possible narration errors in rendered chunks. It runs in its 
 - A resolution or dismissal is valid only while the chunk's audio hash, fingerprint and verifier configuration are unchanged; otherwise the item is open again as `stale`, with the old decision shown.
 - Manual findings (stress, pronunciation, prosody, join, voice, other) stay open until resolved or dismissed. If the chunk audio changes they are marked `needs_relisten`.
 - `status` prints two states per chapter: `reviewed` (no blocking reasons) and `draft` (audio exists; unresolved items are listed). Corrections and regeneration stay with `rutts book dict|override|regenerate`.
+
+## Export
+
+`rutts book export <book>` builds `exports/audiobook/audiobook.m4b`: an AAC (96 kb/s mono by default, `--bitrate`) M4B with title, author and one chapter marker per included chapter. `--format mp3` adds one tagged MP3 per chapter plus an `.m3u8` playlist. A reviewed export is refused, listing every reason, unless all included chapters have complete, current masters, every chunk is present and verified, and no content finding is open. `--draft` exports anyway as `audiobook.draft.m4b` with " (ЧЕРНОВИК)" in the title and every gap recorded.
+
+Loudness uses one book-wide gain (gated RMS, not LUFS; `--no-loudness` disables it). Chunk and chapter master files are never modified. Each export records its settings, validation results and an input signature in `exports/<name>/export.json`; `rutts book export-status`, `export-check` and `export-open` inspect it. An export is reported stale when audio, chapter order or titles, book metadata or processing settings change.
 
 ## Blind listening evaluation
 

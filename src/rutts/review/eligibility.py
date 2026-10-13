@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from rutts.book.assemble import master_is_stale
-from rutts.book.project import CHAPTERS_DIR, BookProject, read_json
+from rutts.book.project import CHAPTERS_DIR, BookProject, read_json, sha256_file
 from rutts.book.render import MANIFEST_FILE
 from rutts.review.queue import build_queue, chunk_states
 from rutts.verification.verify import findings_dir
@@ -28,6 +28,11 @@ def _verified(project: BookProject, chapter_id: str, target: str, chunk_id: str,
         return False
     document = read_json(path)
     return document.get("audio_sha256") == record.get("audio_sha256") and document.get("chunk_fingerprint") == record.get("fingerprint")
+
+
+def _audio_on_disk(project: BookProject, chapter_id: str, target: str, record: dict[str, object]) -> bool:
+    path = project.target_dir(chapter_id, target) / str(record.get("audio_file", ""))
+    return path.is_file() and sha256_file(path) == record.get("audio_sha256")
 
 
 def _master_problems(project: BookProject, chapter_id: str, target: str) -> list[str]:
@@ -63,6 +68,9 @@ def export_eligibility(project: BookProject, chapters: Sequence[str], target: st
             state = states[chunk_id]
             if state is not None:
                 blocking.append(f"{chunk_id}: {state} chunk")
+                continue
+            if not _audio_on_disk(project, chapter_id, target, record):
+                blocking.append(f"{chunk_id}: missing chunk audio")
                 continue
             audio_chunks += 1
             if not _verified(project, chapter_id, target, chunk_id, record):

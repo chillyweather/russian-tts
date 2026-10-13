@@ -22,6 +22,7 @@ from rutts.book.epub_import import POLICIES, build_epub, import_epub, is_epub, s
 from rutts.book.project import install_narrator, load_project, read_json
 from rutts.book.render import MANIFEST_FILE, ConfigChangeRequired, render_chapter, summarize_targets
 from rutts.book.job_cli import add_job_parser
+from rutts.export.cli import add_export_parser
 from rutts.book.runstate import read_run_state, status_lines
 from rutts.book.text_import import import_text
 from rutts.engines import base
@@ -165,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_verification_parser(book_commands)
     add_review_parser(book_commands)
     add_job_parser(book_commands)
+    add_export_parser(book_commands)
     add_eval_parser(commands)
     return parser
 
