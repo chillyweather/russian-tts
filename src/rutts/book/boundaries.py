@@ -62,7 +62,9 @@ def rename_chapter(project: BookProject, chapter_id: str, title: str) -> None:
 
 def set_chapter_included(project: BookProject, chapter_id: str, included: bool) -> None:
     source = project.read_source()
-    source.chapter(chapter_id).included = included
+    chapter = source.chapter(chapter_id)
+    chapter.included = included
+    chapter.exclusion_reason = None if included else DEFAULT_REASON
     _save(project, source)
 
 

@@ -63,6 +63,25 @@ A book project is a self-contained directory: `source/original.txt` (byte-identi
 - `render` exits with code 1 on a fatal runtime error (for example out of memory), leaving the project resumable. `assemble` writes `<chapter>.incomplete.wav` and exits with code 1 when chunks are missing or failed, printing each one.
 - `book status` reads progress from disk: completed, reused, remaining and failed chunks, elapsed and cumulative time, recent failures and chunks needing review. Run state is in `chunks/<chapter>/<target>/run.json`.
 
+## EPUB import
+
+`rutts book import book.epub --out book/ --footnotes omit|chapter-end|inline` creates a book project from an EPUB.
+Use `rutts book preview-import book.epub --footnotes P` first: it prints the spine order, each document's handling
+(narrated, or excluded with a reason such as `cover`, `navigation`, `front_matter`, `non_linear_spine_item`,
+`unreadable_document`) and the counts of paragraphs, scene breaks, illustrations and footnotes. It writes nothing.
+
+- Reading order follows the spine; titles come from the EPUB 3 nav document, else the EPUB 2 NCX, else the first heading.
+- A document whose nav entries point at several anchors is split into one chapter per anchor.
+- Illustrations, tables, scripts and media are kept as excluded `auxiliary` segments with their reason and alt text.
+- Footnote policies: `omit` (default) excludes note bodies (`footnote_omitted`); `chapter-end` and `inline` read each
+  note once, prefixed `Примечание N.`, and exclude the original (`footnotes_relocated`). The reference marker is never
+  spoken. Change the policy later with `rutts book footnotes book/ --policy P`; this re-derives the source from
+  `source/original.epub`, so boundary corrections made before the change must be re-applied.
+- `source/original.epub` is kept byte-identical. `source/import-report.json` records the spine, footnote relocations
+  and every exclusion. Exit code 1 means a document could not be read or contained unsupported content (the rest is imported);
+  exit code 2 means the input is not an EPUB, is DRM-protected, lacks its package document, or has no Russian prose.
+- Only the Python standard library is used for parsing; nothing is fetched from the network.
+
 ## Pronunciation corrections
 
 Narration text is derived: source text plus ordered corrections. `source/source.json` and `source/original.txt` are never edited. Corrections live in `narration/dictionary.json` (per-book patterns), `narration/overrides.json` (one exact span of one source segment, guarded by its original text), `narration/markup.json` (per-engine stress-hint convention) and `narration/history.json` (append-only).

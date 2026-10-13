@@ -170,7 +170,7 @@ def add_override(
         replacement=replacement,
         kind=kind,
         note=note,
-        location={"line_start": segment.line_start, "line_end": segment.line_end},
+        location=dict(segment.location),
     )
     _change(corrections, "add", "override", entry.id, asdict(entry))
     return entry

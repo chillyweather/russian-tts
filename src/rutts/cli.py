@@ -17,6 +17,7 @@ from rutts.book.boundaries import (
     split_chapter,
 )
 from rutts.book.chunking import TARGET_SECONDS, limits_for_target, plan_chunks
+from rutts.book.epub_import import POLICIES, build_epub, import_epub, is_epub, set_footnote_policy
 from rutts.book.project import install_narrator, load_project, read_json
 from rutts.book.render import MANIFEST_FILE, ConfigChangeRequired, render_chapter, summarize_targets
 from rutts.book.runstate import read_run_state, status_lines
@@ -70,12 +71,21 @@ def build_parser() -> argparse.ArgumentParser:
     book = commands.add_parser("book", help="book projects: import, correct, render and assemble")
     book_commands = book.add_subparsers(dest="book_command", required=True)
 
-    book_import = book_commands.add_parser("import", help="create a book project from UTF-8 text")
+    book_import = book_commands.add_parser("import", help="create a book project from UTF-8 text or an EPUB")
     book_import.add_argument("source", type=Path)
     book_import.add_argument("--out", type=Path, required=True)
     book_import.add_argument("--title")
     book_import.add_argument("--author", default="")
     book_import.add_argument("--chapter-regex", help="extra chapter marker pattern (re.match)")
+    book_import.add_argument("--footnotes", choices=POLICIES, default="omit", help="EPUB footnote policy (default omit)")
+
+    preview = book_commands.add_parser("preview-import", help="show how an EPUB would be imported, writing nothing")
+    preview.add_argument("source", type=Path)
+    preview.add_argument("--footnotes", choices=POLICIES, default="omit")
+
+    footnotes = book_commands.add_parser("footnotes", help="change an EPUB project's footnote policy")
+    footnotes.add_argument("directory", type=Path)
+    footnotes.add_argument("--policy", choices=POLICIES, required=True)
 
     show = book_commands.add_parser("show", help="list chapters, exclusions or one chapter's segments")
     show.add_argument("directory", type=Path)
@@ -243,6 +253,15 @@ def _preview(text: str) -> str:
 
 
 def _book_import(args: argparse.Namespace) -> int:
+    if is_epub(args.source):
+        project, warnings = import_epub(
+            args.source, args.out, title=args.title, author=args.author, footnotes=args.footnotes
+        )
+        chapters = project.read_source().chapters
+        print(f"book project written to {args.out}: {len(chapters)} chapter(s) (report: source/import-report.json)")
+        for warning in warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        return 1 if warnings else 0
     project = import_text(
         args.source,
         args.out,
@@ -255,12 +274,48 @@ def _book_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _book_preview_import(args: argparse.Namespace) -> int:
+    build = build_epub(args.source.read_bytes(), args.footnotes)
+    metadata = build.report["metadata"]
+    print(f"title: {metadata['title'] or '(none)'}")
+    print(f"author: {metadata['author'] or '(none)'}")
+    print(f"language: {metadata['language'] or '(none)'}")
+    print(f"footnote policy: {args.footnotes}")
+    for entry in build.report["spine"]:
+        state = "narrated" if entry["included"] else f"excluded ({entry['reason']})"
+        print(f"spine {entry['spine_index']:>2} {entry['href']}: {entry['title']!r} -> {state}")
+    segments = [segment for chapter in build.source.chapters if chapter.included for segment in chapter.segments]
+    counts = Counter(segment.kind for segment in segments)
+    illustrations = sum(
+        1 for chapter in build.source.chapters for segment in chapter.segments if segment.kind == "auxiliary"
+    )
+    print(
+        f"included segments: paragraphs={counts['paragraph']} headings={counts['heading']} "
+        f"scene_breaks={counts['scene_break']}"
+    )
+    print(f"illustrations and auxiliary items (excluded): {illustrations}")
+    footnotes = build.report["footnotes"]
+    print(f"footnote references: {footnotes['references']}; note bodies: {footnotes['bodies']}")
+    for warning in build.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    return 1 if build.warnings else 0
+
+
+def _book_footnotes(args: argparse.Namespace) -> int:
+    project = load_project(args.directory)
+    warnings = set_footnote_policy(project, args.policy)
+    print(f"footnote policy set to {args.policy}; boundary corrections were re-derived from the original")
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    return 1 if warnings else 0
+
+
 def _book_show(args: argparse.Namespace) -> int:
     project = load_project(args.directory)
     source = project.read_source()
     if args.chapter is not None:
         chapter = source.chapter(args.chapter)
-        state = "included" if chapter.included else "excluded"
+        state = "included" if chapter.included else f"excluded: {chapter.exclusion_reason}"
         print(f"{chapter.id} {chapter.title!r} [{state}]")
         for segment in chapter.segments:
             reason = "" if segment.included else f" [excluded: {segment.exclusion_reason}]"
@@ -271,13 +326,17 @@ def _book_show(args: argparse.Namespace) -> int:
     for chapter in source.chapters:
         kinds = Counter(segment.kind for segment in chapter.segments)
         excluded = sum(1 for segment in chapter.segments if not segment.included)
-        state = "included" if chapter.included else "excluded"
+        state = "included" if chapter.included else f"excluded: {chapter.exclusion_reason}"
         print(
             f"{chapter.id} {chapter.title!r} [{state}] paragraphs={kinds['paragraph']} "
             f"scene_breaks={kinds['scene_break']} headings={kinds['heading']} "
             f"excluded_segments={excluded}"
         )
     exclusions = [
+        (chapter.id, chapter.exclusion_reason)
+        for chapter in source.chapters
+        if not chapter.included
+    ] + [
         (segment.id, segment.exclusion_reason)
         for chapter in source.chapters
         for segment in chapter.segments
@@ -456,6 +515,8 @@ def _book_compare(args: argparse.Namespace) -> int:
 
 BOOK_COMMANDS = {
     "import": _book_import,
+    "preview-import": _book_preview_import,
+    "footnotes": _book_footnotes,
     "show": _book_show,
     "split": _book_boundary,
     "merge": _book_boundary,

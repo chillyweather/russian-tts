@@ -45,7 +45,7 @@ class OverrideEntry:
     replacement: str
     kind: str
     note: str
-    location: dict[str, int]
+    location: dict[str, Any]
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> OverrideEntry:
@@ -58,7 +58,7 @@ class OverrideEntry:
             replacement=str(data["replacement"]),
             kind=str(data["kind"]),
             note=str(data["note"]),
-            location={key: int(value) for key, value in data["location"].items()},
+            location=dict(data["location"]),
         )
 
 
@@ -157,6 +157,9 @@ def build_narration(
         for segment in chapter.segments:
             claimed: list[tuple[int, int]] = []
             found: list[tuple[int, int, str, str, str, str, str]] = []
+            for cut_start, cut_end in segment.narration_cuts:
+                claimed.append((cut_start, cut_end))
+                found.append((cut_start, cut_end, segment.text[cut_start:cut_end], "", "footnote", f"{segment.id}-marker", "footnote"))
             for override in overrides:
                 if override.segment_id != segment.id:
                     continue
@@ -175,7 +178,7 @@ def build_narration(
                     claimed.append((match.start(), match.end()))
                     found.append((match.start(), match.end(), match.group(0), entry.replacement, "dictionary", entry.id, entry.kind))
             found.sort()
-            pieces: list[str] = []
+            pieces: list[str] = [segment.narration_prefix]
             position = 0
             for start, end, original, replacement, origin, entry_id, kind in found:
                 before, after = _context(segment.text, start, end)
@@ -196,17 +199,20 @@ def build_narration(
     return NarrationBuild(NarrationDocument(segments=narration), changes, stale)
 
 
+def _location_key(location: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted((key, repr(value)) for key, value in location.items()))
+
+
 def remap_overrides(source: SourceDocument, overrides: list[OverrideEntry]) -> list[OverrideEntry]:
     """Follow each override's source segment by its line location after splits and merges."""
     by_location = {
-        (segment.line_start, segment.line_end): segment.id
+        _location_key(segment.location): segment.id
         for chapter in source.chapters
         for segment in chapter.segments
     }
     remapped: list[OverrideEntry] = []
     for override in overrides:
-        key = (override.location["line_start"], override.location["line_end"])
-        segment_id = by_location.get(key, override.segment_id)
+        segment_id = by_location.get(_location_key(override.location), override.segment_id)
         remapped.append(OverrideEntry(**{**override.__dict__, "segment_id": segment_id}))
     return remapped
 

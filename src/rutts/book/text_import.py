@@ -115,8 +115,7 @@ def parse_source(text: str, chapter_regex: str | None) -> SourceDocument:
                     chapter_id="",
                     kind=block.kind,
                     text=block.text,
-                    line_start=block.line_start,
-                    line_end=block.line_end,
+                    location={"line_start": block.line_start, "line_end": block.line_end},
                 )
                 for block in section.blocks
             ],

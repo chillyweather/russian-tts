@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,8 @@ from rutts.validation import ValidationError
 SCHEMA_VERSION = 1
 PROJECT_FILE = "project.json"
 ORIGINAL_FILE = "source/original.txt"
+ORIGINAL_EPUB_FILE = "source/original.epub"
+IMPORT_REPORT_FILE = "source/import-report.json"
 SOURCE_FILE = "source/source.json"
 NARRATION_FILE = "narration/narration.json"
 NARRATOR_DIR = "narrator"
@@ -53,10 +55,13 @@ class SourceSegment:
     chapter_id: str
     kind: str
     text: str
-    line_start: int
-    line_end: int
+    location: dict[str, Any]
     included: bool = True
     exclusion_reason: str | None = None
+    # Narration-only additions: text spoken before the source text, and source spans left unspoken
+    # (for example footnote reference markers). The source text itself is never changed.
+    narration_prefix: str = ""
+    narration_cuts: list[tuple[int, int]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -64,24 +69,26 @@ class SourceSegment:
             "chapter_id": self.chapter_id,
             "kind": self.kind,
             "text": self.text,
-            "location": {"line_start": self.line_start, "line_end": self.line_end},
+            "location": self.location,
             "included": self.included,
             "exclusion_reason": self.exclusion_reason,
+            "narration_prefix": self.narration_prefix,
+            "narration_cuts": [[start, end] for start, end in self.narration_cuts],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SourceSegment:
-        location = data["location"]
         reason = data["exclusion_reason"]
         return cls(
             id=str(data["id"]),
             chapter_id=str(data["chapter_id"]),
             kind=str(data["kind"]),
             text=str(data["text"]),
-            line_start=int(location["line_start"]),
-            line_end=int(location["line_end"]),
+            location=dict(data["location"]),
             included=bool(data["included"]),
             exclusion_reason=None if reason is None else str(reason),
+            narration_prefix=str(data.get("narration_prefix", "")),
+            narration_cuts=[(int(start), int(end)) for start, end in data.get("narration_cuts", [])],
         )
 
 
@@ -92,6 +99,7 @@ class SourceChapter:
     order: int
     included: bool
     segments: list[SourceSegment]
+    exclusion_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -99,17 +107,20 @@ class SourceChapter:
             "title": self.title,
             "order": self.order,
             "included": self.included,
+            "exclusion_reason": self.exclusion_reason,
             "segments": [segment.to_dict() for segment in self.segments],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SourceChapter:
+        reason = data.get("exclusion_reason")
         return cls(
             id=str(data["id"]),
             title=str(data["title"]),
             order=int(data["order"]),
             included=bool(data["included"]),
             segments=[SourceSegment.from_dict(item) for item in data["segments"]],
+            exclusion_reason=None if reason is None else str(reason),
         )
 
 
@@ -197,6 +208,17 @@ def renumber(chapters: list[SourceChapter]) -> None:
             segment.id = f"{chapter.id}-s{index:04d}"
 
 
+def spoken_text(segment: SourceSegment) -> str:
+    """Source text with its narration-only prefix, minus any spans left unspoken."""
+    pieces: list[str] = []
+    position = 0
+    for start, end in sorted(segment.narration_cuts):
+        pieces.append(segment.text[position:start])
+        position = end
+    pieces.append(segment.text[position:])
+    return segment.narration_prefix + "".join(pieces)
+
+
 def narration_from_source(source: SourceDocument) -> NarrationDocument:
     return NarrationDocument(
         segments=[
@@ -205,7 +227,7 @@ def narration_from_source(source: SourceDocument) -> NarrationDocument:
                 source_segment_id=segment.id,
                 chapter_id=chapter.id,
                 kind=segment.kind,
-                text=segment.text,
+                text=spoken_text(segment),
             )
             for chapter in source.chapters
             for segment in chapter.segments
