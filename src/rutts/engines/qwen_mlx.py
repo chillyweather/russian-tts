@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import importlib.metadata
-import re
 from typing import Any
 
-import numpy as np
-
 from rutts.engines.base import EngineConfig, SynthesisResult
+from rutts.engines.mlx_common import (
+    UNRESOLVED_REVISION,
+    clear_mlx_cache,
+    concat_segments,
+    resolve_revision,
+)
 from rutts.narrator import NarratorProfile
 
 MODEL_FAMILY = "Qwen3-TTS-12Hz-1.7B-Base"
@@ -22,8 +25,6 @@ GENERATION_SETTINGS: dict[str, Any] = {
     "split_pattern": "\n",
 }
 LICENSE = "Apache-2.0"
-UNRESOLVED_REVISION = "unresolved"
-_COMMIT_HASH = re.compile(r"^[0-9a-f]{40}$")
 
 
 class QwenMlxEngine:
@@ -49,18 +50,14 @@ class QwenMlxEngine:
         )
 
     def load(self) -> None:
-        from huggingface_hub import snapshot_download
         from mlx_audio.tts.utils import load_model
 
         self._model = load_model(self.repo)
-        snapshot = snapshot_download(self.repo, local_files_only=True)
-        commit = snapshot.rstrip("/").split("/")[-1]
-        if not _COMMIT_HASH.match(commit):
-            raise RuntimeError(f"could not resolve a commit hash for {self.repo}: {snapshot}")
-        self._revision = commit
+        self._revision = resolve_revision(self.repo)
 
     def unload(self) -> None:
         self._model = None
+        clear_mlx_cache()
 
     def synthesize(self, text: str, narrator: NarratorProfile) -> SynthesisResult:
         if self._model is None:
@@ -77,12 +74,4 @@ class QwenMlxEngine:
                 verbose=False,
             )
         )
-        if not segments:
-            raise RuntimeError("engine returned no audio segments")
-        rates = {int(segment.sample_rate) for segment in segments}
-        if len(rates) != 1:
-            raise RuntimeError(f"engine returned mixed sample rates: {sorted(rates)}")
-        samples = np.concatenate(
-            [np.asarray(segment.audio, dtype=np.float32).reshape(-1) for segment in segments]
-        )
-        return SynthesisResult(samples=samples, sample_rate=rates.pop())
+        return concat_segments(segments)

@@ -173,8 +173,8 @@ def run_preview(
     _check_free(out_dir, excerpts)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    engine.load()
     try:
+        engine.load()
         config = engine.config
         document: dict[str, Any] = {
             "engine": {

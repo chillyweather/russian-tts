@@ -233,3 +233,138 @@ def test_suite_preview_renders_every_excerpt(
     results = json.loads((out / "results.json").read_text(encoding="utf-8"))
     assert results["summary"]["excerpts"] == 16
     assert (out / "prose_morning" / "attempt-1.wav").exists()
+
+
+def test_preview_rejects_precision_per_engine_exits_2(
+    profile_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = main(
+        [
+            "preview", "--engine", "fish-mlx", "--precision", "bf16", "--narrator", str(profile_dir),
+            "--out", str(tmp_path / "o"), "--text", "Привет, мир.",
+        ]
+    )
+    assert code == 2
+    assert "error: unsupported precision 'bf16' for fish-mlx (use 8bit)" in capsys.readouterr().err
+    assert not (tmp_path / "o").exists()
+
+
+def test_preview_unloads_engine_after_success(
+    profile_dir: Path, tmp_path: Path, fake_engine_factory: list[FakeEngine]
+) -> None:
+    assert main(
+        ["preview", "--engine", "fake", "--narrator", str(profile_dir), "--out", str(tmp_path / "o"), "--text", "Привет, мир."]
+    ) == 0
+    assert fake_engine_factory[0].unloads == 1
+
+
+def test_preview_unloads_engine_when_load_fails(
+    profile_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rutts.engines import base
+
+    created: list[FakeEngine] = []
+
+    def factory(**options: object) -> FakeEngine:
+        engine = FakeEngine(fail_load=True)
+        created.append(engine)
+        return engine
+
+    monkeypatch.setitem(base.ENGINE_FACTORIES, "fake", factory)
+    with pytest.raises(RuntimeError, match="fake failure while loading"):
+        main(
+            ["preview", "--engine", "fake", "--narrator", str(profile_dir), "--out", str(tmp_path / "o"), "--text", "Привет, мир."]
+        )
+    assert created[0].unloads == 1
+
+
+def _smoke(profile_dir: Path, out: Path, engine: str = "fake", *extra: str) -> int:
+    return main(["smoke", "--engine", engine, "--narrator", str(profile_dir), "--out", str(out), *extra])
+
+
+def test_smoke_writes_ok_record_and_unloads(
+    profile_dir: Path, tmp_path: Path, fake_engine_factory: list[FakeEngine]
+) -> None:
+    out = tmp_path / "smoke"
+    assert _smoke(profile_dir, out) == 0
+    record = json.loads((out / "smoke.json").read_text(encoding="utf-8"))
+    assert record["status"] == "ok"
+    assert record["feasible"] is True
+    assert record["error"] is None
+    assert record["audio_duration_seconds"] == pytest.approx(0.5)
+    assert record["file"] == "smoke.wav"
+    assert record["render_seconds"] >= 0
+    assert "peak_rss_bytes" in record["resources"]["render"]
+    assert "peak_rss_bytes" in record["resources"]["load"]
+    assert record["engine"]["config"]["engine_id"] == "fake"
+    assert len(record["engine"]["fingerprint"]) == 64
+    assert sf.info(str(out / "smoke.wav")).samplerate == 24000
+    assert fake_engine_factory[0].unloads == 1
+
+
+def test_smoke_records_render_failure_as_infeasible(
+    profile_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rutts.engines import base
+
+    monkeypatch.setitem(base.ENGINE_FACTORIES, "fake", lambda **options: FakeEngine(raise_on=frozenset({1})))
+    out = tmp_path / "smoke"
+    assert _smoke(profile_dir, out) == 1
+    record = json.loads((out / "smoke.json").read_text(encoding="utf-8"))
+    assert record["status"] == "failed"
+    assert record["feasible"] is False
+    assert record["error"] == "RuntimeError: fake failure on call 1"
+    assert record["file"] is None
+    assert record["audio_duration_seconds"] is None
+
+
+def test_smoke_records_silent_audio_as_infeasible(
+    profile_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rutts.engines import base
+
+    monkeypatch.setitem(base.ENGINE_FACTORIES, "fake", lambda **options: FakeEngine(silent_on=frozenset({1})))
+    out = tmp_path / "smoke"
+    assert _smoke(profile_dir, out) == 1
+    record = json.loads((out / "smoke.json").read_text(encoding="utf-8"))
+    assert record["error"] == "engine returned silent audio"
+    assert record["feasible"] is False
+
+
+def test_smoke_records_load_failure_and_still_unloads(
+    profile_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rutts.engines import base
+
+    created: list[FakeEngine] = []
+
+    def factory(**options: object) -> FakeEngine:
+        engine = FakeEngine(fail_load=True)
+        created.append(engine)
+        return engine
+
+    monkeypatch.setitem(base.ENGINE_FACTORIES, "fake", factory)
+    out = tmp_path / "smoke"
+    assert _smoke(profile_dir, out) == 1
+    record = json.loads((out / "smoke.json").read_text(encoding="utf-8"))
+    assert record["status"] == "failed"
+    assert record["error"] == "RuntimeError: fake failure while loading"
+    assert record["render_seconds"] == 0.0
+    assert created[0].unloads == 1
+
+
+def test_smoke_rejects_precision_per_engine_exits_2(
+    profile_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "smoke"
+    assert _smoke(profile_dir, out, "voxcpm2", "--precision", "fp16") == 2
+    assert "unsupported precision 'fp16' for voxcpm2" in capsys.readouterr().err
+    assert not (out / "smoke.json").exists()
+
+
+def test_smoke_refuses_to_overwrite_existing_record(
+    profile_dir: Path, tmp_path: Path, fake_engine_factory: list[FakeEngine]
+) -> None:
+    out = tmp_path / "smoke"
+    assert _smoke(profile_dir, out) == 0
+    assert _smoke(profile_dir, out) == 2

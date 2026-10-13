@@ -22,12 +22,15 @@ class FakeEngine:
         *,
         raise_on: frozenset[int] = frozenset(),
         silent_on: frozenset[int] = frozenset(),
+        fail_load: bool = False,
     ) -> None:
         self.precision = precision
         self.raise_on = raise_on
         self.silent_on = silent_on
+        self.fail_load = fail_load
         self.calls = 0
         self.loaded = False
+        self.unloads = 0
 
     @property
     def config(self) -> EngineConfig:
@@ -43,10 +46,13 @@ class FakeEngine:
         )
 
     def load(self) -> None:
+        if self.fail_load:
+            raise RuntimeError("fake failure while loading")
         self.loaded = True
 
     def unload(self) -> None:
         self.loaded = False
+        self.unloads += 1
 
     def synthesize(self, text: str, narrator: NarratorProfile) -> SynthesisResult:
         self.calls += 1

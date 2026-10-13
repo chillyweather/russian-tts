@@ -8,6 +8,7 @@ from pathlib import Path
 from rutts.engines import base
 from rutts.narrator import create_profile, load_profile
 from rutts.preview import Excerpt, load_excerpts, load_suite, run_preview
+from rutts.smoke import run_smoke
 from rutts.validation import ValidationError, read_text_file, text_problems
 
 
@@ -26,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     preview = commands.add_parser("preview", help="render narration previews")
     preview.add_argument("--engine", choices=sorted(base.ENGINE_FACTORIES), required=True)
-    preview.add_argument("--precision", choices=["bf16", "8bit"], default="bf16")
+    preview.add_argument("--precision", help="engine precision (default depends on the engine)")
     preview.add_argument("--narrator", type=Path, required=True)
     preview.add_argument("--out", type=Path, required=True)
     sources = preview.add_mutually_exclusive_group(required=True)
@@ -36,6 +37,13 @@ def build_parser() -> argparse.ArgumentParser:
     sources.add_argument("--suite", action="store_true")
     preview.add_argument("--retries", type=int, default=1)
     preview.add_argument("--offline", action="store_true")
+
+    smoke = commands.add_parser("smoke", help="one-sentence memory smoke test for one engine")
+    smoke.add_argument("--engine", choices=sorted(base.ENGINE_FACTORIES), required=True)
+    smoke.add_argument("--precision", help="engine precision (default depends on the engine)")
+    smoke.add_argument("--narrator", type=Path, required=True)
+    smoke.add_argument("--out", type=Path, required=True)
+    smoke.add_argument("--offline", action="store_true")
     return parser
 
 
@@ -73,6 +81,14 @@ def _excerpts_for(args: argparse.Namespace) -> list[Excerpt]:
     return [Excerpt(id="text", category="custom", text=text)]
 
 
+def _build_engine(engine_id: str, precision: str | None) -> base.SynthesisEngine:
+    options: dict[str, str] = {} if precision is None else {"precision": precision}
+    try:
+        return base.get_engine(engine_id, **options)
+    except ValueError as exc:
+        raise ValidationError([str(exc)]) from exc
+
+
 def _run_preview(args: argparse.Namespace) -> int:
     if args.retries < 0:
         return _report(["--retries must be zero or positive"])
@@ -81,10 +97,10 @@ def _run_preview(args: argparse.Namespace) -> int:
     try:
         narrator = load_profile(args.narrator)
         excerpts = _excerpts_for(args)
+        engine = _build_engine(args.engine, args.precision)
     except ValidationError as exc:
         return _report(exc.messages)
 
-    engine = base.get_engine(args.engine, precision=args.precision)
     try:
         document = run_preview(engine, narrator, excerpts, args.out, args.retries)
     except FileExistsError as exc:
@@ -97,10 +113,28 @@ def _run_preview(args: argparse.Namespace) -> int:
     return 0 if summary["failed"] == 0 else 1
 
 
+def _run_smoke(args: argparse.Namespace) -> int:
+    if args.offline:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        narrator = load_profile(args.narrator)
+        engine = _build_engine(args.engine, args.precision)
+    except ValidationError as exc:
+        return _report(exc.messages)
+    try:
+        record = run_smoke(engine, narrator, args.out)
+    except FileExistsError as exc:
+        return _report([str(exc)])
+    print(f"smoke {record['status']} for {args.engine}; record in {args.out / 'smoke.json'}")
+    return 0 if record["feasible"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "narrator":
         return _run_narrator_create(args)
+    if args.command == "smoke":
+        return _run_smoke(args)
     return _run_preview(args)
 
 
