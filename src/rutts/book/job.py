@@ -25,6 +25,7 @@ JOB_FILE = "job/job.json"
 STATE_FILE = "job/state.json"
 COVERAGE_FILE = "job/coverage.json"
 RESOURCES_FILE = "job/resources.jsonl"
+INVOCATIONS_FILE = "job/invocations.jsonl"
 DIAGNOSTICS_DIR = "job/diagnostics"
 DEFAULT_POLICY: dict[str, Any] = {"retries": 2, "max_swap_gb": 4.0, "min_free_percent": 5.0, "max_rss_gb": 13.0}
 CONFIG_KEYS = ("engine", "narrator", "target", "limits", "policy")
@@ -206,6 +207,17 @@ def _chunk_state(
     return status
 
 
+def _ok_chunks(survey: dict[str, dict[str, dict[str, Any]]]) -> int:
+    return sum(1 for chapter in survey.values() for entry in chapter.values() if entry["status"] == "ok")
+
+
+def _append_invocation(project: BookProject, record: dict[str, Any]) -> None:
+    path = project.directory / INVOCATIONS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def _scrub(text: str, project_dir: Path) -> str:
     return text.replace(str(project_dir), "<project>")
 
@@ -267,6 +279,9 @@ class _Job:
 
     def elapsed(self) -> float:
         return time.perf_counter() - self.started
+
+    def ok_count(self) -> int:
+        return _ok_chunks(self.survey())
 
     def begin_chapter(self, chapter_id: str) -> None:
         self.chapter_id = chapter_id
@@ -599,6 +614,8 @@ def run_job(
     runnable = [chapter for chapter in selected if chapter.included]
 
     job = _Job(project, engine, target, policy, sampler or resources.sample, progress, previous_state)
+    started_at = _now()
+    ok_at_start = job.ok_count()
     session = EngineSession(engine)
     status = "running"
     error: BaseException | None = None
@@ -643,11 +660,24 @@ def run_job(
         session.close()
         survey = job.survey()
         coverage = job.coverage(survey)
+        ok_at_end = _ok_chunks(survey)
         write_json(project.directory / COVERAGE_FILE, coverage)
         if status == "finished":
             status = "completed" if coverage["complete"] else "incomplete"
         diagnostics = job.diagnostics(status, job.stop_reasons, error) if status == STOPPED else None
         state = job.write_state(status)
+        _append_invocation(
+            project,
+            {
+                "invocation": job.invocations,
+                "started_at": started_at,
+                "ended_at": _now(),
+                "status": status,
+                "target": target,
+                "ok_at_start": ok_at_start,
+                "ok_at_end": ok_at_end,
+            },
+        )
     if status == "failed" and error is not None:
         raise error
     exit_codes = {"completed": 0, "incomplete": 1, STOPPED: 3, "interrupted": 130}

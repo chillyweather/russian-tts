@@ -2,6 +2,8 @@
 
 Local Russian narration previews on Apple Silicon. Engines: `qwen-mlx` (Qwen3-TTS, Apache-2.0), `fish-mlx` (Fish Audio S2 Pro 8-bit community conversion, non-commercial research license) and `voxcpm2` (VoxCPM2 MLX port, Apache-2.0; the official PyTorch MPS path is not used).
 
+Runbook for one book, offline, from a clean checkout, with the acceptance record: [docs/runbook.md](docs/runbook.md).
+
 ## Setup
 
 ```sh

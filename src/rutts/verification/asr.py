@@ -13,6 +13,7 @@ from rutts.engines.mlx_common import clear_mlx_cache, resolve_revision
 WHISPER_REPO = "mlx-community/whisper-large-v3-turbo"
 WHISPER_REVISION = "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb"
 RUSSIAN = "ru"
+WHISPER_LICENSE = "MIT"
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class TranscriberConfig:
     runtime_version: str
     language: str
     settings: dict[str, Any] = field(default_factory=dict)
+    license: str = "unverified"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -103,6 +105,7 @@ class WhisperMlxTranscriber:
             runtime_version=metadata.version("mlx-audio"),
             language=RUSSIAN,
             settings={"word_timestamps": True, "task": "transcribe"},
+            license=WHISPER_LICENSE,
         )
 
     def load(self) -> None:

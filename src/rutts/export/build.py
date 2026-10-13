@@ -6,6 +6,7 @@ import re
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from rutts.review.eligibility import Eligibility, export_eligibility
 
 EXPORTS_DIR = "exports"
 RECORD_FILE = "export.json"
+BUILDS_FILE = "builds.json"
 WORK_DIR = "work"
 DEFAULT_NAME = "audiobook"
 DRAFT_SUFFIX = " (ЧЕРНОВИК)"
@@ -107,6 +109,23 @@ def components(project: BookProject, chapter_ids: list[str], target: str, settin
 
 def signature_of(document: dict[str, Any]) -> str:
     return sha256_text(json.dumps(document, sort_keys=True, ensure_ascii=False))
+
+
+def _append_build(directory: Path, record: dict[str, Any]) -> None:
+    """Every build, in order, so later acceptance evidence can see a rebuilt export superseding an earlier one."""
+    path = directory / BUILDS_FILE
+    entries: list[dict[str, Any]] = read_json(path)["entries"] if path.is_file() else []
+    entries.append(
+        {
+            "seq": len(entries) + 1,
+            "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "kind": record["kind"],
+            "status": record["status"],
+            "target": record["target"],
+            "signature": record["input"]["signature"],
+        }
+    )
+    write_json(path, {"schema_version": SCHEMA_VERSION, "entries": entries})
 
 
 def _has_master(project: BookProject, chapter_id: str) -> bool:
@@ -386,6 +405,7 @@ def build_export(
         "work_dir": work.relative_to(project.directory).as_posix(),
     }
     write_json(directory / RECORD_FILE, record)
+    _append_build(directory, record)
     if not valid:
         failed = [f"{item['name']}: {item['detail']}".rstrip(": ") for item in checks if not item["ok"]] + errors
         return Outcome("invalid", tuple(failed), record)

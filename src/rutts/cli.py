@@ -8,6 +8,7 @@ from pathlib import Path
 from collections import Counter
 from typing import Any
 
+from rutts.acceptance.cli import add_acceptance_parser
 from rutts.assist.cli import add_assist_parser
 from rutts.book.assemble import assemble_chapter, master_is_stale
 from rutts.book.boundaries import (
@@ -167,6 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_review_parser(book_commands)
     add_job_parser(book_commands)
     add_export_parser(book_commands)
+    add_acceptance_parser(book_commands)
     add_eval_parser(commands)
     return parser
 
