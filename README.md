@@ -58,3 +58,22 @@ A book project is a self-contained directory: `source/original.txt` (byte-identi
 - `plan` durations are estimates at 14 characters per second. `compare-targets` reports durations measured from the rendered audio.
 - `render` refuses a chapter already rendered with a different engine configuration or narrator unless `--force-new-run` is given, which moves the old `chunks/<chapter>/` to `chunks/<chapter>.prev-<n>/`.
 - `render` exits with code 1 when any chunk fails. `assemble` writes `<chapter>.incomplete.wav` and exits with code 1 when chunks are missing or failed, printing each one.
+
+## Blind listening evaluation
+
+Run the preview (or `book render` for chapter trials) for each candidate first, then:
+
+```sh
+rutts eval prepare --candidates runs/qwen runs/fish --out evals/june --seed 20261013 --attempt first
+rutts eval score evals/june                      # interactive; resumable; afplay plays each sample
+rutts eval import-scores evals/june --file scores.csv   # scores written down elsewhere
+rutts eval chapter-trial book/ --chapter c001 --target short --label qwen --out evals/june
+rutts eval chapter-notes evals/june --label qwen --stress-errors 0 --omissions 0 --distracting-joins 1 --notes "..."
+rutts eval report evals/june                     # un-blinds; writes report.json and report.md
+rutts eval decide evals/june [--approve-target-revision "reason"]
+```
+
+- `prepare` writes anonymous samples under `samples/<excerpt>/<label>.wav` and `blind.json`. The identity key is in `key.json`; keep it out of the listening session. `--attempt final` compares the last successful attempt within the retry budget.
+- Loudness is matched with one constant gain per file. Speed, length and sample rate are unchanged. If raising the level would clip, the common target is lowered for the whole set and `key.json` records it.
+- Scores are only what the listener enters. Nothing is defaulted or estimated; `report` marks the report `incomplete` and lists every unscored sample or preference.
+- `decide` applies the PRD gates and exits with code 1, writing `decision.json` with `status: "no_decision"` and the gaps, when scores are missing, fewer than two candidates are feasible, the top two lack a completed chapter trial, or none passes. A target revision needs `--approve-target-revision` and its reason is recorded verbatim.

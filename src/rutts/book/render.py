@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +20,7 @@ from rutts.book.project import (
 )
 from rutts.narrator import NarratorProfile
 from rutts.preview import audio_problems
+from rutts.resources import measure
 from rutts.validation import ValidationError
 
 if TYPE_CHECKING:
@@ -70,19 +70,20 @@ def _render_chunk(
     narrator_sha256: str,
 ) -> dict[str, Any]:
     record = _pending_record(chunk, engine_fingerprint, narrator_sha256)
-    started = time.perf_counter()
     audio_name = f"{chunk.id}.wav"
     error: str | None = None
-    try:
-        result = engine.synthesize(chunk.text, profile)
-        samples = np.asarray(result.samples, dtype=np.float32).reshape(-1)
-        error = audio_problems(samples)
-        if error is None:
-            with atomic_path(directory / audio_name) as temp:
-                sf.write(str(temp), samples, result.sample_rate, subtype="FLOAT")
-    except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"
-    record["render_seconds"] = round(time.perf_counter() - started, 3)
+    with measure() as sample:
+        try:
+            result = engine.synthesize(chunk.text, profile)
+            samples = np.asarray(result.samples, dtype=np.float32).reshape(-1)
+            error = audio_problems(samples)
+            if error is None:
+                with atomic_path(directory / audio_name) as temp:
+                    sf.write(str(temp), samples, result.sample_rate, subtype="FLOAT")
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+    record["render_seconds"] = round(sample.elapsed_seconds, 3)
+    record["resources"] = sample.metrics
     if error is not None:
         record["status"] = "failed"
         record["attempts"] = [{"attempt": 1, "status": "failed", "error": error}]

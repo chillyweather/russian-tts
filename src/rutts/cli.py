@@ -21,6 +21,7 @@ from rutts.book.project import install_narrator, load_project
 from rutts.book.render import render_chapter, summarize_targets
 from rutts.book.text_import import import_text
 from rutts.engines import base
+from rutts.evaluation.cli import add_eval_parser, run_eval
 from rutts.narrator import create_profile, load_profile
 from rutts.preview import Excerpt, load_excerpts, load_suite, run_preview
 from rutts.smoke import run_smoke
@@ -131,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare = book_commands.add_parser("compare-targets", help="compare rendered short and long targets")
     compare.add_argument("directory", type=Path)
     compare.add_argument("--chapter", required=True)
+    add_eval_parser(commands)
     return parser
 
 
@@ -414,6 +416,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_smoke(args)
     if args.command == "book":
         return _run_book(args)
+    if args.command == "eval":
+        return run_eval(args)
     return _run_preview(args)
 
 

@@ -24,8 +24,10 @@ class FakeEngine:
         silent_on: frozenset[int] = frozenset(),
         fail_load: bool = False,
         fail_texts: frozenset[str] = frozenset(),
+        amplitude: float = 0.2,
     ) -> None:
         self.precision = precision
+        self.amplitude = amplitude
         self.raise_on = raise_on
         self.silent_on = silent_on
         self.fail_load = fail_load
@@ -64,7 +66,7 @@ class FakeEngine:
             raise RuntimeError(f"fake failure on call {self.calls}")
         duration = 0.5
         t = np.arange(int(duration * FAKE_SAMPLE_RATE)) / FAKE_SAMPLE_RATE
-        samples = 0.2 * np.sin(2 * np.pi * 440 * t).astype(np.float32)
+        samples = self.amplitude * np.sin(2 * np.pi * 440 * t).astype(np.float32)
         if self.calls in self.silent_on:
             samples = np.zeros_like(samples)
         return SynthesisResult(samples=samples, sample_rate=FAKE_SAMPLE_RATE)
