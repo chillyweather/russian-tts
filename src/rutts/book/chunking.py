@@ -10,6 +10,7 @@ from rutts.validation import ValidationError
 
 TARGET_SECONDS: dict[str, tuple[float, float]] = {"short": (20.0, 40.0), "long": (45.0, 90.0)}
 DEFAULT_MAX_CHARS = 600
+TARGET_MAX_CHARS: dict[str, int] = {"short": 600, "long": 1300}
 CHARS_PER_SECOND = 14.0
 SENTENCE_END = re.compile(r"[.!?…]+[»\"”)]*\s+")
 CLAUSE_MARKERS = (";:", "—", ",")
@@ -75,6 +76,10 @@ class _Atom:
     start: int
     end: int
     paragraph_end: bool = False
+
+
+def limits_for_target(target: str, max_chars: int | None = None) -> ChunkLimits:
+    return ChunkLimits(max_chars=max_chars or TARGET_MAX_CHARS.get(target, DEFAULT_MAX_CHARS))
 
 
 def _aim_range(target: str, limits: ChunkLimits) -> tuple[int, int]:

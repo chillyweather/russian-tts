@@ -16,7 +16,7 @@ from rutts.book.boundaries import (
     set_segment_included,
     split_chapter,
 )
-from rutts.book.chunking import DEFAULT_MAX_CHARS, TARGET_SECONDS, ChunkLimits, plan_chunks
+from rutts.book.chunking import TARGET_SECONDS, limits_for_target, plan_chunks
 from rutts.book.project import install_narrator, load_project
 from rutts.book.render import render_chapter, summarize_targets
 from rutts.book.text_import import import_text
@@ -107,7 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("directory", type=Path)
     plan.add_argument("--chapter", required=True)
     plan.add_argument("--target", choices=sorted(TARGET_SECONDS), required=True)
-    plan.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS)
+    plan.add_argument("--max-chars", type=int, default=None)
 
     render = book_commands.add_parser("render", help="render a chapter's chunks with one engine")
     render.add_argument("directory", type=Path)
@@ -115,7 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--engine", choices=sorted(base.ENGINE_FACTORIES), required=True)
     render.add_argument("--precision", help="engine precision (default depends on the engine)")
     render.add_argument("--target", choices=sorted(TARGET_SECONDS), default="short")
-    render.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS)
+    render.add_argument("--max-chars", type=int, default=None)
     render.add_argument("--offline", action="store_true")
     render.add_argument(
         "--force-new-run",
@@ -299,10 +299,10 @@ def _book_narrator(args: argparse.Namespace) -> int:
 
 
 def _book_plan(args: argparse.Namespace) -> int:
-    if args.max_chars <= 0:
+    if args.max_chars is not None and args.max_chars <= 0:
         return _report(["--max-chars must be positive"])
     project = load_project(args.directory)
-    limits = ChunkLimits(max_chars=args.max_chars)
+    limits = limits_for_target(args.target, args.max_chars)
     chunks = plan_chunks(project.planning_segments(args.chapter), args.target, limits)
     if not chunks:
         return _report([f"chapter {args.chapter} has no text to narrate"])
@@ -317,7 +317,7 @@ def _book_plan(args: argparse.Namespace) -> int:
 
 
 def _book_render(args: argparse.Namespace) -> int:
-    if args.max_chars <= 0:
+    if args.max_chars is not None and args.max_chars <= 0:
         return _report(["--max-chars must be positive"])
     if args.offline:
         os.environ["HF_HUB_OFFLINE"] = "1"
@@ -329,7 +329,7 @@ def _book_render(args: argparse.Namespace) -> int:
             args.chapter,
             engine,
             args.target,
-            limits=ChunkLimits(max_chars=args.max_chars),
+            limits=limits_for_target(args.target, args.max_chars),
             force_new_run=args.force_new_run,
         )
     except ValidationError:
