@@ -19,6 +19,8 @@ from rutts.book.project import (
 from rutts.validation import ValidationError, raise_for, text_problems
 
 DEFAULT_MARKER = re.compile(r"(?:Глава|ГЛАВА|Часть|ЧАСТЬ)\s+\S.*|#+\s+\S.*")
+UNWRAPPED_LINE_CHARS = 120
+UNWRAPPED_LINE_SHARE = 0.2
 SCENE_BREAK = re.compile(r"([*\-_=~#])(?:\s*\1){2,}")
 
 
@@ -80,7 +82,12 @@ def _parse_sections(text: str, extra: re.Pattern[str] | None) -> list[_Section]:
             current.blocks.append(_Block("paragraph", body, start, end))
             paragraph.clear()
 
-    for number, line in enumerate(text.splitlines(), start=1):
+    lines = text.splitlines()
+    # Hard-wrapped text has almost no long lines; when many are long, each line is a paragraph.
+    filled = [line for line in lines if line.strip()]
+    long_lines = sum(len(line) > UNWRAPPED_LINE_CHARS for line in filled)
+    line_is_paragraph = bool(filled) and long_lines / len(filled) >= UNWRAPPED_LINE_SHARE
+    for number, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped:
             close_paragraph()
@@ -93,6 +100,8 @@ def _parse_sections(text: str, extra: re.Pattern[str] | None) -> list[_Section]:
             close_paragraph()
             current.blocks.append(_Block("scene_break", stripped, number, number))
         else:
+            if line_is_paragraph:
+                close_paragraph()
             if not paragraph:
                 start = number
             paragraph.append(line)

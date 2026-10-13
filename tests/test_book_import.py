@@ -143,3 +143,16 @@ def test_cli_import_rejects_invalid_chapter_regex_with_exit_2(tmp_path: Path) ->
         ]
     )
     assert code == 2
+
+
+def test_unwrapped_text_treats_each_line_as_a_paragraph(tmp_path: Path) -> None:
+    long_line = "Он шёл по берегу и думал о том, что случилось вчера. " * 5
+    source = tmp_path / "book.txt"
+    source.write_text(f"Глава 1\nПервый абзац.\n{long_line.strip()}\nТретий абзац.\n", encoding="utf-8")
+    book = tmp_path / "book"
+
+    assert main(["book", "import", str(source), "--out", str(book)]) == 0
+
+    document = json.loads((book / "source" / "source.json").read_text(encoding="utf-8"))
+    paragraphs = [s["text"] for s in document["chapters"][0]["segments"] if s["kind"] == "paragraph"]
+    assert paragraphs == ["Первый абзац.", long_line.strip(), "Третий абзац."]
