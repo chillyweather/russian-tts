@@ -24,6 +24,7 @@ from rutts.book.text_import import import_text
 from rutts.engines import base
 from rutts.evaluation.cli import add_eval_parser, run_eval
 from rutts.pronunciation.cli import add_pronunciation_parser
+from rutts.review.cli import add_review_parser
 from rutts.narrator import create_profile, load_profile
 from rutts.preview import Excerpt, load_excerpts, load_suite, run_preview
 from rutts.smoke import run_smoke
@@ -149,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--chapter", required=True)
     add_pronunciation_parser(book_commands)
     add_verification_parser(book_commands)
+    add_review_parser(book_commands)
     add_eval_parser(commands)
     return parser
 

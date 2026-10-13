@@ -98,6 +98,25 @@ Verification flags possible narration errors in rendered chunks. It runs in its 
 - Comparison ignores case, punctuation, stress marks and the ё/е difference, and treats spelled-out and digit numbers as equivalent. ASR spelling noise on long words is reported as `minor`.
 - Limits: ASR checks what words were heard, not how they were said. It cannot judge lexical stress, е/ё pronunciation, prosody or listening comfort; every chunk file and the report say so, and a chunk without findings is labelled `no_automatic_findings`, not verified. Listen to the chapter before accepting it.
 
+## Review queue
+
+`rutts book review` connects flagged passages to their source text, narration, audio and generation history. Items are derived from disk state on every call; only decisions (`review/decisions.json`, append-only log in `review/decisions-log.json`) and manual findings (`review/manual.json`) are stored.
+
+```sh
+.venv/bin/rutts book review list books/novel --chapter c001
+.venv/bin/rutts book review show books/novel <item_id>        # prints the exact override/regenerate/recheck commands
+.venv/bin/rutts book review play books/novel <item_id> --join  # writes review/clips/<item_id>[-join].wav and plays it with afplay
+.venv/bin/rutts book review flag books/novel --chunk c001-k0003 --kind stress --word открыла --note "stress on verb"
+.venv/bin/rutts book review resolve books/novel <item_id> --reason "checked by ear"
+.venv/bin/rutts book review recheck books/novel --chapter c001 --target short
+.venv/bin/rutts book review status books/novel --target short
+```
+
+- Failed and missing chunks, and open content failures (omission, addition, substitution, repetition, missing audio, transcription failure), are blocking for `reviewed` export regardless of decisions. Other automatic flags are listed under `draft`.
+- A resolution or dismissal is valid only while the chunk's audio hash, fingerprint and verifier configuration are unchanged; otherwise the item is open again as `stale`, with the old decision shown.
+- Manual findings (stress, pronunciation, prosody, join, voice, other) stay open until resolved or dismissed. If the chunk audio changes they are marked `needs_relisten`.
+- `status` prints two states per chapter: `reviewed` (no blocking reasons) and `draft` (audio exists; unresolved items are listed). Corrections and regeneration stay with `rutts book dict|override|regenerate`.
+
 ## Blind listening evaluation
 
 Run the preview (or `book render` for chapter trials) for each candidate first, then:
