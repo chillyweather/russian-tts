@@ -262,11 +262,11 @@ def test_progress_lines_count_reused_and_failed_chunks(
     assert lines[0].endswith("| reused 1 | failed 0 | elapsed 0:00:00")
 
 
-def test_runtime_failure_is_fatal_but_resumable(
+def test_memory_exhaustion_is_fatal_but_resumable(
     book: BookProject, install_engine: Callable[[FakeEngine], None]
 ) -> None:
     texts = _plan_texts(book)
-    engine = FakeEngine(runtime_error_on=frozenset({2}))
+    engine = FakeEngine(memory_error_on=frozenset({2}))
     install_engine(engine)
     assert _render_cli(book) == 1
     assert [record["status"] for record in _records(book)] == ["ok", "missing"]
@@ -278,6 +278,17 @@ def test_runtime_failure_is_fatal_but_resumable(
     install_engine(resumed)
     assert _render_cli(book) == 0
     assert resumed.received == texts[1:]
+
+
+def test_ordinary_runtime_error_is_retried_within_budget(
+    book: BookProject, install_engine: Callable[[FakeEngine], None]
+) -> None:
+    install_engine(FakeEngine(runtime_error_on=frozenset({1})))
+    assert _render_cli(book) == 0
+    first = _records(book)[0]
+    assert [a["status"] for a in first["attempts"]] == ["failed", "ok"]
+    assert first["attempts"][0]["error"] == "RuntimeError: engine returned no audio segments on call 1"
+    assert first["status"] == "ok"
 
 
 def test_interrupted_then_resumed_chapter_assembles_with_full_coverage(
@@ -311,3 +322,22 @@ def test_leftover_temp_files_are_removed_at_the_start_of_a_run(
     install_engine(FakeEngine())
     assert _render_cli(book) == 0
     assert not leftover.exists()
+
+
+@pytest.mark.parametrize(
+    ("exc", "fatal"),
+    [
+        (MemoryError(), True),
+        (RuntimeError("Metal: Out of memory while loading"), True),
+        (RuntimeError("Insufficient memory for the KV cache"), True),
+        (RuntimeError("buffer OutOfMemory"), True),
+        (RuntimeError("failed to allocate 512 MB"), True),
+        (RuntimeError("engine returned no audio segments"), False),
+        (ValueError("bad input"), False),
+        (KeyboardInterrupt(), True),
+    ],
+)
+def test_only_memory_exhaustion_is_fatal(exc: BaseException, fatal: bool) -> None:
+    from rutts.book.render import is_fatal
+
+    assert is_fatal(exc) is fatal

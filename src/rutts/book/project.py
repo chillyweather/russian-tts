@@ -244,7 +244,6 @@ class BookProject:
 
     def save_source(self, source: SourceDocument) -> None:
         write_json(self.directory / SOURCE_FILE, source.to_dict())
-        write_json(self.directory / NARRATION_FILE, narration_from_source(source).to_dict())
 
     def narrator(self) -> NarratorProfile:
         return load_profile(self.narrator_dir)
@@ -266,6 +265,7 @@ def create_project(directory: Path, meta: dict[str, Any], source: SourceDocument
     write_json(directory / PROJECT_FILE, {"schema_version": SCHEMA_VERSION, **meta})
     project = BookProject(directory=directory, meta=meta)
     project.save_source(source)
+    write_json(directory / NARRATION_FILE, narration_from_source(source).to_dict())
     return project
 
 

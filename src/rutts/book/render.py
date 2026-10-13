@@ -23,6 +23,7 @@ from rutts.book.project import (
 from rutts.book.runstate import RunTracker, format_elapsed, read_run_state
 from rutts.narrator import NarratorProfile
 from rutts.preview import audio_problems
+from rutts.pronunciation.markup import effective_convention, hint_chunk_ids, read_markup, translate_chunks
 from rutts.resources import measure
 from rutts.validation import ValidationError
 
@@ -32,12 +33,19 @@ if TYPE_CHECKING:
 PLAN_FILE = "plan.json"
 MANIFEST_FILE = "manifest.json"
 SUPERSEDED_DIR = "superseded"
-# Errors that stop the run instead of counting as a failed attempt.
-FATAL_ERRORS = (KeyboardInterrupt, MemoryError, RuntimeError)
+MEMORY_EXHAUSTION_MARKERS = ("out of memory", "insufficient memory", "outofmemory", "failed to allocate")
 
 
 class ConfigChangeRequired(ValidationError):
     """The engine or narrator differs from the one that rendered the chapter."""
+
+
+def is_fatal(exc: BaseException) -> bool:
+    """Only memory exhaustion (or an interrupt) stops the run; every other error is a failed attempt."""
+    if isinstance(exc, (KeyboardInterrupt, MemoryError)):
+        return True
+    message = str(exc).lower()
+    return any(marker in message for marker in MEMORY_EXHAUSTION_MARKERS)
 
 
 def record_fingerprint(text_sha256: str, engine_fingerprint: str, narrator_sha256: str) -> str:
@@ -205,10 +213,10 @@ def _synthesize_once(
                 rate = result.sample_rate
                 samples = np.asarray(result.samples, dtype=np.float32).reshape(-1)
                 problem = audio_problems(samples)
-            except FATAL_ERRORS as exc:
-                attempt.update(status="interrupted", exception_type=type(exc).__name__, error=str(exc))
-                raise
-            except Exception as exc:
+            except BaseException as exc:
+                if not isinstance(exc, Exception) or is_fatal(exc):
+                    attempt.update(status="interrupted", exception_type=type(exc).__name__, error=str(exc))
+                    raise
                 attempt["exception_type"] = type(exc).__name__
                 problem = f"{type(exc).__name__}: {exc}"
     finally:
@@ -356,9 +364,11 @@ def render_chapter(
         raise ValidationError(["--retries must be zero or positive"])
     profile = project.narrator()
     narrator_sha256 = project.narrator_sha256()
-    chunks = plan_chunks(project.planning_segments(chapter_id), target, limits)
-    if not chunks:
+    planned = plan_chunks(project.planning_segments(chapter_id), target, limits)
+    if not planned:
         raise ValidationError([f"chapter {chapter_id} has no text to render"])
+    convention = effective_convention(engine.config.engine_id, read_markup(project.directory))
+    chunks = translate_chunks(planned, convention)
 
     config = engine.config
     engine_fingerprint = config.fingerprint()
@@ -374,9 +384,14 @@ def render_chapter(
     previous = {record["id"]: record for record in previous_manifest["chunks"]} if previous_manifest else {}
 
     remove_temp_files(directory)
-    write_json(directory / PLAN_FILE, plan_document(chapter_id, target, limits, chunks))
+    write_json(directory / PLAN_FILE, plan_document(chapter_id, target, limits, planned))
     records = _reconcile(chunks, previous, engine_fingerprint, narrator_sha256, directory, retry_failed)
     manifest = _manifest_document(chapter_id, target, limits, engine, profile, narrator_sha256, records)
+    manifest["pronunciation"] = {
+        "engine_id": engine.config.engine_id,
+        "convention": convention,
+        "hints_not_applied": hint_chunk_ids(planned, convention),
+    }
     write_json(directory / MANIFEST_FILE, manifest)
     pending = [index for index, record in enumerate(records) if record["status"] == "missing"]
 

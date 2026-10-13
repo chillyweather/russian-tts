@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 from rutts.book.project import BookProject, SourceChapter, SourceDocument, renumber
+from rutts.pronunciation.store import rebuild_narration
 from rutts.validation import ValidationError
 
 DEFAULT_REASON = "excluded by user"
+
+
+def _save(project: BookProject, source: SourceDocument) -> None:
+    """Persist the source, then re-derive narration so corrections follow the new segment ids."""
+    project.save_source(source)
+    rebuild_narration(project)
 
 
 def _require_title(title: str) -> str:
@@ -32,7 +39,7 @@ def split_chapter(project: BookProject, at_segment_id: str, title: str) -> None:
     chapter.segments = chapter.segments[:segment_index]
     source.chapters.insert(chapter_index + 1, tail)
     renumber(source.chapters)
-    project.save_source(source)
+    _save(project, source)
 
 
 def merge_chapter(project: BookProject, chapter_id: str) -> None:
@@ -44,19 +51,19 @@ def merge_chapter(project: BookProject, chapter_id: str) -> None:
     merged = source.chapters.pop(index)
     source.chapters[index - 1].segments.extend(merged.segments)
     renumber(source.chapters)
-    project.save_source(source)
+    _save(project, source)
 
 
 def rename_chapter(project: BookProject, chapter_id: str, title: str) -> None:
     source = project.read_source()
     source.chapter(chapter_id).title = _require_title(title)
-    project.save_source(source)
+    _save(project, source)
 
 
 def set_chapter_included(project: BookProject, chapter_id: str, included: bool) -> None:
     source = project.read_source()
     source.chapter(chapter_id).included = included
-    project.save_source(source)
+    _save(project, source)
 
 
 def set_segment_included(
@@ -67,4 +74,4 @@ def set_segment_included(
     segment = source.chapters[chapter_index].segments[segment_index]
     segment.included = included
     segment.exclusion_reason = None if included else (reason or DEFAULT_REASON)
-    project.save_source(source)
+    _save(project, source)

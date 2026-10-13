@@ -11,6 +11,7 @@ from rutts.atomic import atomic_path
 from rutts.book.chunking import Chunk, ChunkLimits, plan_chunks
 from rutts.book.project import CHAPTERS_DIR, SCHEMA_VERSION, BookProject, read_json, sha256_file, sha256_text, write_json
 from rutts.book.render import MANIFEST_FILE, resolve_target
+from rutts.pronunciation.markup import effective_convention, read_markup, translate_chunks
 from rutts.validation import ValidationError
 
 
@@ -57,6 +58,39 @@ def _chunk_status(chunk: Chunk, record: dict[str, Any] | None, directory: Path) 
     return "ok"
 
 
+def planned_chunks(project: BookProject, chapter_id: str, target: str, manifest: dict[str, Any]) -> list[Chunk]:
+    """Chunks as the engine receives them: current narration, with the engine's pronunciation convention applied."""
+    limits = ChunkLimits.from_dict(manifest["limits"])
+    convention = effective_convention(str(manifest["engine"]["engine_id"]), read_markup(project.directory))
+    return translate_chunks(plan_chunks(project.planning_segments(chapter_id), target, limits), convention)
+
+
+def _signature(chunks: list[Chunk], records: dict[str, dict[str, Any]], directory: Path) -> dict[str, list[str | None]]:
+    """Text and audio hash of every planned chunk; a master built from another signature is stale."""
+    signature: dict[str, list[str | None]] = {}
+    for chunk in chunks:
+        record = records.get(chunk.id)
+        audio = record["audio_sha256"] if record and _chunk_status(chunk, record, directory) == "ok" else None
+        signature[chunk.id] = [sha256_text(chunk.text), audio]
+    return signature
+
+
+def master_is_stale(project: BookProject, chapter_id: str) -> bool:
+    """True when the chapter master no longer matches the current narration or the chunk audio."""
+    report_path = project.directory / CHAPTERS_DIR / f"{chapter_id}.json"
+    if not report_path.is_file():
+        return False
+    report = read_json(report_path)
+    target = str(report["target"])
+    directory = project.target_dir(chapter_id, target)
+    if not (directory / MANIFEST_FILE).is_file():
+        return True
+    manifest = read_json(directory / MANIFEST_FILE)
+    records = {record["id"]: record for record in manifest["chunks"]}
+    chunks = planned_chunks(project, chapter_id, target, manifest)
+    return _signature(chunks, records, directory) != report.get("chunk_signature")
+
+
 def assemble_chapter(
     project: BookProject,
     chapter_id: str,
@@ -70,8 +104,7 @@ def assemble_chapter(
     target = resolve_target(project, chapter_id, target)
     directory = project.target_dir(chapter_id, target)
     manifest = read_json(directory / MANIFEST_FILE)
-    limits = ChunkLimits.from_dict(manifest["limits"])
-    chunks = plan_chunks(project.planning_segments(chapter_id), target, limits)
+    chunks = planned_chunks(project, chapter_id, target, manifest)
     records = {record["id"]: record for record in manifest["chunks"]}
 
     statuses = {chunk.id: _chunk_status(chunk, records.get(chunk.id), directory) for chunk in chunks}
@@ -165,6 +198,7 @@ def assemble_chapter(
         "failed_chunks": failed,
         "uncovered_segments": uncovered,
         "excluded_segments": excluded,
+        "chunk_signature": _signature(chunks, records, directory),
     }
     write_json(chapters_dir / f"{chapter_id}.json", report)
     return report

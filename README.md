@@ -63,6 +63,27 @@ A book project is a self-contained directory: `source/original.txt` (byte-identi
 - `render` exits with code 1 on a fatal runtime error (for example out of memory), leaving the project resumable. `assemble` writes `<chapter>.incomplete.wav` and exits with code 1 when chunks are missing or failed, printing each one.
 - `book status` reads progress from disk: completed, reused, remaining and failed chunks, elapsed and cumulative time, recent failures and chunks needing review. Run state is in `chunks/<chapter>/<target>/run.json`.
 
+## Pronunciation corrections
+
+Narration text is derived: source text plus ordered corrections. `source/source.json` and `source/original.txt` are never edited. Corrections live in `narration/dictionary.json` (per-book patterns), `narration/overrides.json` (one exact span of one source segment, guarded by its original text), `narration/markup.json` (per-engine stress-hint convention) and `narration/history.json` (append-only).
+
+```sh
+.venv/bin/rutts book dict add books/novel --pattern "замок" --replacement "з+амок" --kind stress --yes
+.venv/bin/rutts book override add books/novel --segment c001-s0002 --find "замок" --occurrence 2 --replacement "зам+ок" --yes
+.venv/bin/rutts book diff books/novel --chapter c001 --pending-file changes.json
+.venv/bin/rutts book history books/novel
+.venv/bin/rutts book revert books/novel 2
+.venv/bin/rutts book markup-test books/novel --engine qwen-mlx --narrator profiles/narrator --out review/markup
+.venv/bin/rutts book markup-set books/novel --engine qwen-mlx --convention plus --verified-by-listening
+.venv/bin/rutts book regenerate books/novel --chapter c001 --engine qwen-mlx --target short
+```
+
+- `dict add` and `override add` print the source-to-narration diff and the chunks it would invalidate, then require `--yes` (or an interactive yes). `--pending-file` previews a JSON list of proposed entries without applying them.
+- A stress hint is a `+` directly before the stressed vowel (`з+амок`). It is accepted only with the engine's convention: `none` strips hints (and warns), `plus` keeps `+`, `acute` writes U+0301 after the vowel. Only conventions enabled with `markup-set --verified-by-listening` are used; all engines start at `none`. Unsupported markup (angle brackets, several stress marks in a word, a `+` without a following vowel) is rejected when the correction is added.
+- Each chunk is fingerprinted on the text the engine receives, so a correction re-renders only the chunks whose spoken text changed. `status` reports a chapter master as STALE until `assemble` rebuilds it.
+- `regenerate` renders only invalidated chunks and writes `review/joins/<chunk>.wav`: previous chunk, pause, regenerated chunk, pause, next chunk.
+- An override whose source text no longer matches is reported as stale and not applied. Splits and merges keep overrides attached to their source segment.
+
 ## Blind listening evaluation
 
 Run the preview (or `book render` for chapter trials) for each candidate first, then:

@@ -17,7 +17,8 @@ class FakeEngine:
     """Deterministic engine: returns a short sine wave, optionally failing or interrupting per call.
 
     ``raise_on`` and ``fail_texts`` raise ``ValueError`` (a recoverable chunk failure);
-    ``runtime_error_on`` raises ``RuntimeError`` (fatal for the run); ``interrupt_on`` raises
+    ``runtime_error_on`` raises ``RuntimeError`` (a failed attempt); ``memory_error_on`` raises a
+    ``RuntimeError`` reporting memory exhaustion (fatal for the run); ``interrupt_on`` raises
     ``KeyboardInterrupt``; ``fail_attempts`` fails the first K attempts for a text;
     ``silent_texts`` returns silent audio for a text on every attempt.
     """
@@ -28,6 +29,7 @@ class FakeEngine:
         *,
         raise_on: frozenset[int] = frozenset(),
         runtime_error_on: frozenset[int] = frozenset(),
+        memory_error_on: frozenset[int] = frozenset(),
         interrupt_on: frozenset[int] = frozenset(),
         silent_on: frozenset[int] = frozenset(),
         silent_texts: frozenset[str] = frozenset(),
@@ -40,6 +42,7 @@ class FakeEngine:
         self.amplitude = amplitude
         self.raise_on = raise_on
         self.runtime_error_on = runtime_error_on
+        self.memory_error_on = memory_error_on
         self.interrupt_on = interrupt_on
         self.silent_on = silent_on
         self.silent_texts = silent_texts
@@ -81,7 +84,9 @@ class FakeEngine:
         if self.calls in self.interrupt_on:
             raise KeyboardInterrupt
         if self.calls in self.runtime_error_on:
-            raise RuntimeError(f"fake runtime failure on call {self.calls}")
+            raise RuntimeError(f"engine returned no audio segments on call {self.calls}")
+        if self.calls in self.memory_error_on:
+            raise RuntimeError(f"Metal: out of memory on call {self.calls}")
         attempts = self.received.count(text)
         if text in self.fail_texts or self.calls in self.raise_on:
             raise ValueError(f"fake failure on call {self.calls}")

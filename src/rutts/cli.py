@@ -8,7 +8,7 @@ from pathlib import Path
 from collections import Counter
 from typing import Any
 
-from rutts.book.assemble import assemble_chapter
+from rutts.book.assemble import assemble_chapter, master_is_stale
 from rutts.book.boundaries import (
     merge_chapter,
     rename_chapter,
@@ -23,6 +23,7 @@ from rutts.book.runstate import read_run_state, status_lines
 from rutts.book.text_import import import_text
 from rutts.engines import base
 from rutts.evaluation.cli import add_eval_parser, run_eval
+from rutts.pronunciation.cli import add_pronunciation_parser
 from rutts.narrator import create_profile, load_profile
 from rutts.preview import Excerpt, load_excerpts, load_suite, run_preview
 from rutts.smoke import run_smoke
@@ -145,6 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare = book_commands.add_parser("compare-targets", help="compare rendered short and long targets")
     compare.add_argument("directory", type=Path)
     compare.add_argument("--chapter", required=True)
+    add_pronunciation_parser(book_commands)
     add_eval_parser(commands)
     return parser
 
@@ -378,6 +380,12 @@ def _book_render(args: argparse.Namespace) -> int:
         f"rendered {args.chapter} ({args.target}): {len(records)} chunk(s), {ok} ok, "
         f"{len(failed)} failed; chunks in {project.target_dir(args.chapter, args.target)}"
     )
+    hints = manifest["pronunciation"]["hints_not_applied"]
+    if hints:
+        print(
+            f"warning: stress hints were not applied for {manifest['engine']['engine_id']} "
+            f"(no verified convention; hints stripped) in: {', '.join(hints)}"
+        )
     for chunk_id in failed:
         print(f"failed chunk (needs review): {chunk_id}")
     return 0 if not failed else 1
@@ -393,6 +401,8 @@ def _book_status(args: argparse.Namespace) -> int:
         rendered = [target for target in targets if (project.target_dir(chapter_id, target) / MANIFEST_FILE).is_file()]
         if not rendered:
             print(f"{chapter_id}: not rendered")
+        if master_is_stale(project, chapter_id):
+            print(f"{chapter_id} chapter master: STALE (narration or chunk audio changed); run book assemble")
         for target in rendered:
             directory = project.target_dir(chapter_id, target)
             records: list[dict[str, Any]] = read_json(directory / MANIFEST_FILE)["chunks"]
@@ -403,7 +413,10 @@ def _book_status(args: argparse.Namespace) -> int:
 
 def _book_assemble(args: argparse.Namespace) -> int:
     project = load_project(args.directory)
+    was_stale = master_is_stale(project, args.chapter)
     report = assemble_chapter(project, args.chapter, args.target)
+    if was_stale:
+        print(f"previous {args.chapter} master was stale and has been rebuilt")
     for chunk_id in report["missing_chunks"]:
         print(f"missing chunk: {chunk_id}")
     for chunk_id in report["failed_chunks"]:
@@ -455,8 +468,9 @@ BOOK_COMMANDS = {
 
 
 def _run_book(args: argparse.Namespace) -> int:
+    handler = getattr(args, "book_handler", None) or BOOK_COMMANDS[args.book_command]
     try:
-        return BOOK_COMMANDS[args.book_command](args)
+        return handler(args)
     except ValidationError as exc:
         return _report(exc.messages)
 
