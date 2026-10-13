@@ -257,6 +257,7 @@ class _Job:
             prior.get("resources")
             or {"samples": 0, "unavailable_samples": 0, "max_swap_used_bytes": None, "min_memory_free_percent": None, "max_peak_rss_bytes": None}
         )
+        self.swap_baseline: int | None = None
         self.low_free_streak = 0
         self.samples: list[dict[str, Any]] = []
         self.chapter_id: str | None = None
@@ -459,8 +460,16 @@ class _Job:
     def _pressure(self, sample: dict[str, Any]) -> list[str]:
         reasons: list[str] = []
         swap = sample.get("swap_used_bytes")
-        if isinstance(swap, int) and swap > self.policy["max_swap_gb"] * GIB:
-            reasons.append(f"swap used {swap / GIB:.2f} GB exceeds {self.policy['max_swap_gb']:g} GB")
+        if isinstance(swap, int):
+            # Swap already in use by other apps is not ours; judge growth since the job started.
+            if self.swap_baseline is None:
+                self.swap_baseline = swap
+            growth = swap - self.swap_baseline
+            if growth > self.policy["max_swap_gb"] * GIB:
+                reasons.append(
+                    f"swap grew by {growth / GIB:.2f} GB since the job started, "
+                    f"exceeding {self.policy['max_swap_gb']:g} GB"
+                )
         free = sample.get("memory_free_percent")
         if isinstance(free, int) and free < self.policy["min_free_percent"]:
             self.low_free_streak += 1
