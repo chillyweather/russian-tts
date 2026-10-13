@@ -24,7 +24,7 @@ from rutts.book.runstate import RunTracker, format_elapsed, read_run_state
 from rutts.narrator import NarratorProfile
 from rutts.preview import audio_problems
 from rutts.pronunciation.markup import effective_convention, hint_chunk_ids, read_markup, translate_chunks
-from rutts.resources import measure
+from rutts.resources import ResourceSample, measure
 from rutts.validation import ValidationError
 
 if TYPE_CHECKING:
@@ -221,6 +221,7 @@ def _synthesize_once(
     samples: np.ndarray | None = None
     rate = 0
     problem: str | None = None
+    sample = ResourceSample()
     try:
         with measure() as sample:
             try:

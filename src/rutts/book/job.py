@@ -472,7 +472,7 @@ class _Job:
         )
         return measurements
 
-    def _pressure(self, sample: dict[str, Any]) -> list[str]:
+    def _pressure(self, sample: dict[str, Any], *, debounce_free: bool = True) -> list[str]:
         reasons: list[str] = []
         swap = sample.get("swap_used_bytes")
         if isinstance(swap, int):
@@ -486,11 +486,14 @@ class _Job:
                     f"exceeding {self.policy['max_swap_gb']:g} GB"
                 )
         free = sample.get("memory_free_percent")
-        if isinstance(free, int) and free < self.policy["min_free_percent"]:
-            self.low_free_streak += 1
-        else:
-            self.low_free_streak = 0
-        if self.low_free_streak >= 2:
+        # The after-sample of one chunk and the before-sample of the next are back to back,
+        # so only before-samples count towards the two consecutive low readings.
+        if debounce_free:
+            if isinstance(free, int) and free < self.policy["min_free_percent"]:
+                self.low_free_streak += 1
+            else:
+                self.low_free_streak = 0
+        if debounce_free and self.low_free_streak >= 2:
             reasons.append(
                 f"free memory {free}% is below {self.policy['min_free_percent']:g}% on two consecutive samples"
             )
@@ -528,7 +531,7 @@ class _Job:
 
     def after_chunk(self, chunk: Chunk, record: dict[str, Any], seconds: float) -> None:
         after = self._sample("after")
-        reasons = self._pressure(after)
+        reasons = self._pressure(after, debounce_free=False)
         before = self.samples[-2]["measurements"]
         if record["status"] == "ok":
             self.throughput["rendered_chunks"] += 1

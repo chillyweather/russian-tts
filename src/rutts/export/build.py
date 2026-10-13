@@ -348,6 +348,7 @@ def build_export(
         temp = _temp(directory, ".m4b")
         error = _encode_m4b(combined, metadata_file, temp, settings.bitrate)
         if error:
+            temp.unlink(missing_ok=True)
             errors.append(f"m4b encoder: {error}")
         else:
             checks += m4b_checks(temp, expected, total_seconds, title, project.author)
@@ -361,6 +362,7 @@ def build_export(
             tags = {"title": chapter_title, "album": title, "artist": project.author, "track": f"{number}/{len(processed.chapters)}"}
             error = _encode_mp3(work / f"{chapter_id}.wav", temp, settings.bitrate, {key: value for key, value in tags.items() if value})
             if error:
+                temp.unlink(missing_ok=True)
                 errors.append(f"mp3 encoder for {chapter_id}: {error}")
             else:
                 checks += mp3_checks(temp, chapter_title, title, project.author, number, len(processed.chapters))

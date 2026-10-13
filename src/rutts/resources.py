@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import resource
 import subprocess
@@ -23,7 +24,9 @@ class ResourceSample:
 
 def _run(command: list[str]) -> str | None:
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=10, check=True)
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=10, check=True, env={**os.environ, "LC_ALL": "C"}
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     return completed.stdout
