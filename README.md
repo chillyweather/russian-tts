@@ -36,3 +36,25 @@ Before a full suite, run the one-sentence memory smoke test for a single engine:
 ```
 
 It loads one model, renders one fixed Russian sentence, and writes `smoke.json` (status, `feasible`, error, timings, resource measurements) plus `smoke.wav` on success. A failed load or render still writes `smoke.json` and exits with code 1. No other engine or network service is used as a fallback.
+
+## Book workflow
+
+A book project is a self-contained directory: `source/original.txt` (byte-identical input), `source/source.json` (chapters and segments with line locations), `narration/narration.json` (narration text linked to source segment ids), `narrator/` (copied profile), `chunks/<chapter>/<target>/` (plan, manifest and lossless chunk WAVs) and `chapters/<chapter>.wav` with `chapters/<chapter>.json` (assembly and coverage report).
+
+```sh
+.venv/bin/rutts book import novel.txt --out books/novel --title "Novel" --author "Author"
+.venv/bin/rutts book show books/novel
+.venv/bin/rutts book show books/novel --chapter c002
+.venv/bin/rutts book split books/novel --at c001-s0004 --title "Evening"
+.venv/bin/rutts book exclude books/novel --segment c002-s0003 --reason "footnote"
+.venv/bin/rutts book narrator books/novel --profile profiles/narrator
+.venv/bin/rutts book plan books/novel --chapter c001 --target short
+.venv/bin/rutts book render books/novel --chapter c001 --engine qwen-mlx --precision bf16 --target short --offline
+.venv/bin/rutts book assemble books/novel --chapter c001 --target short
+.venv/bin/rutts book compare-targets books/novel --chapter c001
+```
+
+- Chapter markers are lines starting with `Глава` or `Часть` (also `ГЛАВА` and `ЧАСТЬ`) followed by a number or title, markdown `# Title` lines, and lines matching `--chapter-regex`. Without markers the whole file is one chapter.
+- `plan` durations are estimates at 14 characters per second. `compare-targets` reports durations measured from the rendered audio.
+- `render` refuses a chapter already rendered with a different engine configuration or narrator unless `--force-new-run` is given, which moves the old `chunks/<chapter>/` to `chunks/<chapter>.prev-<n>/`.
+- `render` exits with code 1 when any chunk fails. `assemble` writes `<chapter>.incomplete.wav` and exits with code 1 when chunks are missing or failed, printing each one.

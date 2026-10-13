@@ -5,11 +5,28 @@ import os
 import sys
 from pathlib import Path
 
+from collections import Counter
+from typing import Any
+
+from rutts.book.assemble import assemble_chapter
+from rutts.book.boundaries import (
+    merge_chapter,
+    rename_chapter,
+    set_chapter_included,
+    set_segment_included,
+    split_chapter,
+)
+from rutts.book.chunking import DEFAULT_MAX_CHARS, TARGET_SECONDS, ChunkLimits, plan_chunks
+from rutts.book.project import install_narrator, load_project
+from rutts.book.render import render_chapter, summarize_targets
+from rutts.book.text_import import import_text
 from rutts.engines import base
 from rutts.narrator import create_profile, load_profile
 from rutts.preview import Excerpt, load_excerpts, load_suite, run_preview
 from rutts.smoke import run_smoke
 from rutts.validation import ValidationError, read_text_file, text_problems
+
+PREVIEW_CHARS = 70
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +61,76 @@ def build_parser() -> argparse.ArgumentParser:
     smoke.add_argument("--narrator", type=Path, required=True)
     smoke.add_argument("--out", type=Path, required=True)
     smoke.add_argument("--offline", action="store_true")
+
+    book = commands.add_parser("book", help="book projects: import, correct, render and assemble")
+    book_commands = book.add_subparsers(dest="book_command", required=True)
+
+    book_import = book_commands.add_parser("import", help="create a book project from UTF-8 text")
+    book_import.add_argument("source", type=Path)
+    book_import.add_argument("--out", type=Path, required=True)
+    book_import.add_argument("--title")
+    book_import.add_argument("--author", default="")
+    book_import.add_argument("--chapter-regex", help="extra chapter marker pattern (re.match)")
+
+    show = book_commands.add_parser("show", help="list chapters, exclusions or one chapter's segments")
+    show.add_argument("directory", type=Path)
+    show.add_argument("--chapter")
+
+    split = book_commands.add_parser("split", help="start a new chapter at a segment")
+    split.add_argument("directory", type=Path)
+    split.add_argument("--at", required=True, help="segment id that starts the new chapter")
+    split.add_argument("--title", required=True)
+
+    merge = book_commands.add_parser("merge", help="merge a chapter into the previous one")
+    merge.add_argument("directory", type=Path)
+    merge.add_argument("--chapter", required=True)
+
+    rename = book_commands.add_parser("rename", help="rename a chapter")
+    rename.add_argument("directory", type=Path)
+    rename.add_argument("--chapter", required=True)
+    rename.add_argument("--title", required=True)
+
+    for name, help_text in (("exclude", "exclude a chapter or segment"), ("include", "include a chapter or segment")):
+        command = book_commands.add_parser(name, help=help_text)
+        command.add_argument("directory", type=Path)
+        scope = command.add_mutually_exclusive_group(required=True)
+        scope.add_argument("--chapter")
+        scope.add_argument("--segment")
+        if name == "exclude":
+            command.add_argument("--reason", help="why the segment is excluded")
+
+    narrator_copy = book_commands.add_parser("narrator", help="copy a narrator profile into the project")
+    narrator_copy.add_argument("directory", type=Path)
+    narrator_copy.add_argument("--profile", type=Path, required=True)
+
+    plan = book_commands.add_parser("plan", help="show chunk count and estimated duration range")
+    plan.add_argument("directory", type=Path)
+    plan.add_argument("--chapter", required=True)
+    plan.add_argument("--target", choices=sorted(TARGET_SECONDS), required=True)
+    plan.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS)
+
+    render = book_commands.add_parser("render", help="render a chapter's chunks with one engine")
+    render.add_argument("directory", type=Path)
+    render.add_argument("--chapter", required=True)
+    render.add_argument("--engine", choices=sorted(base.ENGINE_FACTORIES), required=True)
+    render.add_argument("--precision", help="engine precision (default depends on the engine)")
+    render.add_argument("--target", choices=sorted(TARGET_SECONDS), default="short")
+    render.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS)
+    render.add_argument("--offline", action="store_true")
+    render.add_argument(
+        "--force-new-run",
+        action="store_true",
+        help="archive chunks rendered with a different engine or narrator",
+    )
+
+    assemble = book_commands.add_parser("assemble", help="assemble a chapter master from its chunks")
+    assemble.add_argument("directory", type=Path)
+    assemble.add_argument("--chapter", required=True)
+    assemble.add_argument("--target", choices=sorted(TARGET_SECONDS))
+
+    compare = book_commands.add_parser("compare-targets", help="compare rendered short and long targets")
+    compare.add_argument("directory", type=Path)
+    compare.add_argument("--chapter", required=True)
     return parser
 
 
@@ -129,12 +216,204 @@ def _run_smoke(args: argparse.Namespace) -> int:
     return 0 if record["feasible"] else 1
 
 
+def _preview(text: str) -> str:
+    flat = text.replace("\n", " / ")
+    return flat if len(flat) <= PREVIEW_CHARS else flat[:PREVIEW_CHARS] + "..."
+
+
+def _book_import(args: argparse.Namespace) -> int:
+    project = import_text(
+        args.source,
+        args.out,
+        title=args.title,
+        author=args.author,
+        chapter_regex=args.chapter_regex,
+    )
+    chapters = project.read_source().chapters
+    print(f"book project written to {args.out}: {len(chapters)} chapter(s)")
+    return 0
+
+
+def _book_show(args: argparse.Namespace) -> int:
+    project = load_project(args.directory)
+    source = project.read_source()
+    if args.chapter is not None:
+        chapter = source.chapter(args.chapter)
+        state = "included" if chapter.included else "excluded"
+        print(f"{chapter.id} {chapter.title!r} [{state}]")
+        for segment in chapter.segments:
+            reason = "" if segment.included else f" [excluded: {segment.exclusion_reason}]"
+            print(f"  {segment.id} {segment.kind}{reason}: {_preview(segment.text)}")
+        return 0
+    title = project.title if not project.author else f"{project.title} ({project.author})"
+    print(title)
+    for chapter in source.chapters:
+        kinds = Counter(segment.kind for segment in chapter.segments)
+        excluded = sum(1 for segment in chapter.segments if not segment.included)
+        state = "included" if chapter.included else "excluded"
+        print(
+            f"{chapter.id} {chapter.title!r} [{state}] paragraphs={kinds['paragraph']} "
+            f"scene_breaks={kinds['scene_break']} headings={kinds['heading']} "
+            f"excluded_segments={excluded}"
+        )
+    exclusions = [
+        (segment.id, segment.exclusion_reason)
+        for chapter in source.chapters
+        for segment in chapter.segments
+        if not segment.included
+    ]
+    if exclusions:
+        print("exclusions:")
+        for excluded_id, excluded_reason in exclusions:
+            print(f"  {excluded_id}: {excluded_reason}")
+    return 0
+
+
+def _book_boundary(args: argparse.Namespace) -> int:
+    project = load_project(args.directory)
+    if args.book_command == "split":
+        split_chapter(project, args.at, args.title)
+        print(f"chapter split at {args.at}")
+    elif args.book_command == "merge":
+        merge_chapter(project, args.chapter)
+        print(f"{args.chapter} merged into the previous chapter")
+    elif args.book_command == "rename":
+        rename_chapter(project, args.chapter, args.title)
+        print(f"{args.chapter} renamed to {args.title!r}")
+    else:
+        included = args.book_command == "include"
+        if args.chapter is not None:
+            set_chapter_included(project, args.chapter, included)
+            print(f"{args.chapter} {'included' if included else 'excluded'}")
+        else:
+            set_segment_included(project, args.segment, included, reason=getattr(args, "reason", None))
+            print(f"{args.segment} {'included' if included else 'excluded'}")
+    return 0
+
+
+def _book_narrator(args: argparse.Namespace) -> int:
+    project = load_project(args.directory)
+    install_narrator(project, args.profile)
+    print(f"narrator copied into {project.narrator_dir}")
+    return 0
+
+
+def _book_plan(args: argparse.Namespace) -> int:
+    if args.max_chars <= 0:
+        return _report(["--max-chars must be positive"])
+    project = load_project(args.directory)
+    limits = ChunkLimits(max_chars=args.max_chars)
+    chunks = plan_chunks(project.planning_segments(args.chapter), args.target, limits)
+    if not chunks:
+        return _report([f"chapter {args.chapter} has no text to narrate"])
+    estimates = [chunk.estimated_seconds for chunk in chunks]
+    print(f"{args.chapter} target={args.target}: {len(chunks)} chunk(s)")
+    print(
+        f"estimated duration per chunk {min(estimates):.1f}-{max(estimates):.1f} s; "
+        f"about {sum(estimates):.0f} s in total (estimate at {limits.chars_per_second:g} chars/s, "
+        "not measured)"
+    )
+    return 0
+
+
+def _book_render(args: argparse.Namespace) -> int:
+    if args.max_chars <= 0:
+        return _report(["--max-chars must be positive"])
+    if args.offline:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+    project = load_project(args.directory)
+    engine = _build_engine(args.engine, args.precision)
+    try:
+        manifest = render_chapter(
+            project,
+            args.chapter,
+            engine,
+            args.target,
+            limits=ChunkLimits(max_chars=args.max_chars),
+            force_new_run=args.force_new_run,
+        )
+    except ValidationError:
+        raise
+    except Exception as exc:
+        print(f"error: render stopped: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    records: list[dict[str, Any]] = manifest["chunks"]
+    failed = sum(1 for record in records if record["status"] == "failed")
+    ok = sum(1 for record in records if record["status"] == "ok")
+    print(
+        f"rendered {args.chapter} ({args.target}): {len(records)} chunk(s), {ok} ok, "
+        f"{failed} failed; chunks in {project.target_dir(args.chapter, args.target)}"
+    )
+    return 0 if failed == 0 else 1
+
+
+def _book_assemble(args: argparse.Namespace) -> int:
+    project = load_project(args.directory)
+    report = assemble_chapter(project, args.chapter, args.target)
+    for chunk_id in report["missing_chunks"]:
+        print(f"missing chunk: {chunk_id}")
+    for chunk_id in report["failed_chunks"]:
+        print(f"failed chunk: {chunk_id}")
+    for segment_id in report["uncovered_segments"]:
+        print(f"uncovered segment: {segment_id}")
+    state = "complete" if report["complete"] else "INCOMPLETE"
+    print(f"{args.chapter} master {report['master_file']} ({state}); report chapters/{args.chapter}.json")
+    return 0 if report["complete"] else 1
+
+
+def _book_compare(args: argparse.Namespace) -> int:
+    project = load_project(args.directory)
+    for row in summarize_targets(project, args.chapter):
+        if not row["rendered"]:
+            print(f"{row['target']}: not rendered")
+            continue
+        line = (
+            f"{row['target']}: {row['chunks']} chunk(s), {row['ok']} ok, "
+            f"{row['failed']} failed, {row['missing']} missing"
+        )
+        measured = row["measured_seconds"]
+        if measured is None:
+            line += "; no measured audio"
+        else:
+            line += (
+                f"; measured min {measured['min']:.2f} s, mean {measured['mean']:.2f} s, "
+                f"max {measured['max']:.2f} s"
+            )
+        print(line)
+    return 0
+
+
+BOOK_COMMANDS = {
+    "import": _book_import,
+    "show": _book_show,
+    "split": _book_boundary,
+    "merge": _book_boundary,
+    "rename": _book_boundary,
+    "exclude": _book_boundary,
+    "include": _book_boundary,
+    "narrator": _book_narrator,
+    "plan": _book_plan,
+    "render": _book_render,
+    "assemble": _book_assemble,
+    "compare-targets": _book_compare,
+}
+
+
+def _run_book(args: argparse.Namespace) -> int:
+    try:
+        return BOOK_COMMANDS[args.book_command](args)
+    except ValidationError as exc:
+        return _report(exc.messages)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "narrator":
         return _run_narrator_create(args)
     if args.command == "smoke":
         return _run_smoke(args)
+    if args.command == "book":
+        return _run_book(args)
     return _run_preview(args)
 
 

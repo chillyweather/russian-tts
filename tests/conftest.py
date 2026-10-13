@@ -23,11 +23,14 @@ class FakeEngine:
         raise_on: frozenset[int] = frozenset(),
         silent_on: frozenset[int] = frozenset(),
         fail_load: bool = False,
+        fail_texts: frozenset[str] = frozenset(),
     ) -> None:
         self.precision = precision
         self.raise_on = raise_on
         self.silent_on = silent_on
         self.fail_load = fail_load
+        self.fail_texts = fail_texts
+        self.received: list[str] = []
         self.calls = 0
         self.loaded = False
         self.unloads = 0
@@ -56,7 +59,8 @@ class FakeEngine:
 
     def synthesize(self, text: str, narrator: NarratorProfile) -> SynthesisResult:
         self.calls += 1
-        if self.calls in self.raise_on:
+        self.received.append(text)
+        if text in self.fail_texts or self.calls in self.raise_on:
             raise RuntimeError(f"fake failure on call {self.calls}")
         duration = 0.5
         t = np.arange(int(duration * FAKE_SAMPLE_RATE)) / FAKE_SAMPLE_RATE
