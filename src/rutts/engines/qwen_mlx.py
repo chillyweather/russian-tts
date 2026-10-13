@@ -23,8 +23,27 @@ GENERATION_SETTINGS: dict[str, Any] = {
     "temperature": 0.9,
     "max_tokens": 4096,
     "split_pattern": "\n",
+    "decoded_length": "full",
 }
 LICENSE = "Apache-2.0"
+
+
+def _keep_full_decoded_length(model: Any) -> None:
+    """Stop mlx-audio 0.5.8 cutting the end of the audio.
+
+    Its tokenizer counts frames whose first code is non-zero as the valid length, but 0 is an
+    ordinary code, so every such frame removes 80 ms from the end of the utterance.
+    """
+    import mlx.core as mx
+
+    tokenizer = model.speech_tokenizer
+    decode = tokenizer.decode
+
+    def decode_full(codes: Any) -> tuple[Any, Any]:
+        wav, _ = decode(codes)
+        return wav, mx.array([wav.shape[-1]] * wav.shape[0])
+
+    tokenizer.decode = decode_full
 
 
 class QwenMlxEngine:
@@ -52,6 +71,7 @@ class QwenMlxEngine:
         from mlx_audio.tts.utils import load_model
 
         self._model = load_model(self.repo)
+        _keep_full_decoded_length(self._model)
         resolve_revision(self.repo)
 
     def unload(self) -> None:
