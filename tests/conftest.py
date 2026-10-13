@@ -157,6 +157,7 @@ class FakeTranscriber:
             runtime_name="fake-runtime",
             runtime_version="1.0",
             language="ru",
+            license="MIT",
         )
 
     def load(self) -> None:
@@ -274,3 +275,15 @@ def fake_assistant(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeAssista
 
     monkeypatch.setitem(assist_base.ASSISTANT_FACTORIES, "fake-assist", lambda: created[-1])
     return install
+
+
+@pytest.fixture(autouse=True)
+def empty_model_cache(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Routine tests must not depend on which model snapshots this machine has cached."""
+    if request.node.get_closest_marker("local_model"):
+        return
+    from huggingface_hub import constants
+
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path_factory.mktemp("hf-cache")))

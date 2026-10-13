@@ -125,3 +125,15 @@ def test_suite_excerpts_are_short_russian_passages() -> None:
     for excerpt in load_suite():
         enders = excerpt.text.count(".") + excerpt.text.count("!") + excerpt.text.count("?")
         assert 1 <= enders <= 6, excerpt.id
+
+
+def test_qwen_engine_reports_the_cached_revision_before_load() -> None:
+    from huggingface_hub import constants
+
+    commit = "c" * 40
+    repo_dir = Path(constants.HF_HUB_CACHE) / "models--mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit"
+    (repo_dir / "snapshots" / commit).mkdir(parents=True)
+    (repo_dir / "refs").mkdir()
+    (repo_dir / "refs" / "main").write_text(commit)
+
+    assert QwenMlxEngine(precision="8bit").config.model_revision == commit

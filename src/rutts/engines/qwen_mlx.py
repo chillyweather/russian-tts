@@ -5,7 +5,7 @@ from typing import Any
 
 from rutts.engines.base import EngineConfig, SynthesisResult
 from rutts.engines.mlx_common import (
-    UNRESOLVED_REVISION,
+    cached_revision,
     clear_mlx_cache,
     concat_segments,
     resolve_revision,
@@ -33,7 +33,6 @@ class QwenMlxEngine:
             raise ValueError(f"unsupported precision '{precision}' (use bf16 or 8bit)")
         self.precision = precision
         self.repo = PRECISION_REPOS[precision]
-        self._revision = UNRESOLVED_REVISION
         self._model: Any = None
 
     @property
@@ -41,7 +40,7 @@ class QwenMlxEngine:
         return EngineConfig(
             engine_id="qwen-mlx",
             model_repo=self.repo,
-            model_revision=self._revision,
+            model_revision=cached_revision(self.repo),
             precision=self.precision,
             runtime_name="mlx-audio",
             runtime_version=importlib.metadata.version("mlx-audio"),
@@ -53,7 +52,7 @@ class QwenMlxEngine:
         from mlx_audio.tts.utils import load_model
 
         self._model = load_model(self.repo)
-        self._revision = resolve_revision(self.repo)
+        resolve_revision(self.repo)
 
     def unload(self) -> None:
         self._model = None

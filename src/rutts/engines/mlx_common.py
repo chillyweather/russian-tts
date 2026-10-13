@@ -22,6 +22,14 @@ def resolve_revision(repo: str) -> str:
     return commit
 
 
+def cached_revision(repo: str) -> str:
+    """Revision of the locally cached snapshot, known without loading the model."""
+    try:
+        return resolve_revision(repo)
+    except Exception:
+        return UNRESOLVED_REVISION
+
+
 def concat_segments(segments: Sequence[Any]) -> SynthesisResult:
     if not segments:
         raise RuntimeError("engine returned no audio segments")
