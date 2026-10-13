@@ -8,7 +8,7 @@ from rutts.book.project import NarrationDocument, NarrationSegment, SourceDocume
 from rutts.validation import ValidationError
 
 MATCH_MODES = ("word", "phrase", "regex")
-KINDS = ("name", "stress", "numeral", "date", "abbreviation", "initials", "foreign", "other")
+KINDS = ("name", "stress", "yo", "numeral", "date", "abbreviation", "initials", "foreign", "other")
 CONTEXT_CHARS = 30
 
 

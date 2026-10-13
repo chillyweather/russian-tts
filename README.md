@@ -103,6 +103,32 @@ Narration text is derived: source text plus ordered corrections. `source/source.
 - `regenerate` renders only invalidated chunks and writes `review/joins/<chunk>.wav`: previous chunk, pause, regenerated chunk, pause, next chunk.
 - An override whose source text no longer matches is reported as stale and not applied. Splits and merges keep overrides attached to their source segment.
 
+## Stress and ё suggestions
+
+An optional local assistant (RUAccent, https://github.com/Den4ikAI/ruaccent) proposes stress and ё changes. Nothing is applied until you accept it.
+
+Install (not part of the default install; the adapter is written against RUAccent's documented API and has not been verified against the real package):
+
+```bash
+.venv/bin/pip install ruaccent
+```
+
+```bash
+rutts book suggest book/ --chapter c001 [--stress-scope homographs|all] [--yo on|off]
+rutts book suggestions book/ --chapter c001 [--state proposed|accepted|rejected|all] [--kind yo|stress]
+rutts book suggestion listen book/ c001-g001 --engine qwen-mlx   # A/B clips in narration/suggestions/listen/
+rutts book suggestion accept book/ c001-g001 --yes               # or --all-yo --yes
+rutts book suggestion reject book/ c001-g002
+rutts book suggestion revert book/ c001-g001
+```
+
+- Suggestions are stored in `narration/suggestions/<chapter>.json` with the assistant's provenance. Original text is never changed.
+- `--stress-scope homographs` (default) only suggests stress for words in `src/rutts/data/homographs_ru.json`.
+- Words covered by a dictionary entry or an occurrence override are never suggested.
+- Accepting creates an ordinary override (visible in `rutts book history` and `rutts book diff`); reverting removes it.
+- Stress hints are stored as `+` and are removed before synthesis for any engine without a verified convention. Check with `rutts book markup-test` and enable with `rutts book markup-set` only after listening. ё suggestions take effect immediately.
+- The assistant is loaded only by `rutts book suggest` and unloaded afterwards; ordinary render and verify never import it.
+
 ## Verification
 
 Verification flags possible narration errors in rendered chunks. It runs in its own process, loads only the Whisper transcriber (`mlx-community/whisper-large-v3-turbo`, revision `a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb`, language `ru`) and unloads it when done.

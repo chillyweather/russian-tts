@@ -10,6 +10,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from rutts.assist import base as assist_base
+from rutts.assist.base import AssistantConfig
 from rutts.engines import base
 from rutts.engines.base import EngineConfig, SynthesisResult
 from rutts.narrator import NarratorProfile
@@ -213,3 +215,58 @@ def transcript_file(tmp_path: Path) -> Path:
     path = tmp_path / "transcript.txt"
     path.write_text("Это тестовая фраза для опорной записи.\n", encoding="utf-8")
     return path
+
+
+class FakeAssistant:
+    """Scripted stress/ё assistant: ``answers`` maps a paragraph to its annotated output (identity otherwise)."""
+
+    def __init__(self, answers: dict[str, str] | None = None, *, fail_load: bool = False, fail_on: str | None = None) -> None:
+        self.answers = answers or {}
+        self.fail_load = fail_load
+        self.fail_on = fail_on
+        self.received: list[str] = []
+        self.loads = 0
+        self.unloads = 0
+        self.loaded = False
+
+    @property
+    def config(self) -> AssistantConfig:
+        return AssistantConfig(
+            assistant_id="fake-assist",
+            package="fake-stress",
+            package_version="1.0",
+            model="fake/stress-model",
+            model_sha256="unavailable",
+            settings={"size": "tiny"},
+            license="MIT",
+        )
+
+    def load(self) -> None:
+        self.loads += 1
+        if self.fail_load:
+            raise RuntimeError("fake assistant failed to load")
+        self.loaded = True
+
+    def unload(self) -> None:
+        self.loaded = False
+        self.unloads += 1
+
+    def annotate(self, text: str) -> str:
+        self.received.append(text)
+        if self.fail_on is not None and self.fail_on in text:
+            raise RuntimeError("fake assistant crashed")
+        return self.answers.get(text, text)
+
+
+@pytest.fixture
+def fake_assistant(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeAssistant]:
+    """Registers ``fake-assist``; call the returned function with the scripted behaviour."""
+    created: list[FakeAssistant] = []
+
+    def install(answers: dict[str, str] | None = None, **options: object) -> FakeAssistant:
+        assistant = FakeAssistant(answers, **options)  # type: ignore[arg-type]
+        created.append(assistant)
+        return assistant
+
+    monkeypatch.setitem(assist_base.ASSISTANT_FACTORIES, "fake-assist", lambda: created[-1])
+    return install

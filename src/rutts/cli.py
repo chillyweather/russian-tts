@@ -8,6 +8,7 @@ from pathlib import Path
 from collections import Counter
 from typing import Any
 
+from rutts.assist.cli import add_assist_parser
 from rutts.book.assemble import assemble_chapter, master_is_stale
 from rutts.book.boundaries import (
     merge_chapter,
@@ -159,6 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("directory", type=Path)
     compare.add_argument("--chapter", required=True)
     add_pronunciation_parser(book_commands)
+    add_assist_parser(book_commands)
     add_verification_parser(book_commands)
     add_review_parser(book_commands)
     add_eval_parser(commands)

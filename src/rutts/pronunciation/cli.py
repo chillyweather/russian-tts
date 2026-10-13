@@ -149,7 +149,7 @@ def _print_invalidation(project: BookProject, before: NarrationBuild, after: Nar
         print(f"would invalidate {target}: {', '.join(chunk_ids) if chunk_ids else 'none'}")
 
 
-def _review_and_commit(
+def review_and_commit(
     project: BookProject, corrections: Corrections, before: NarrationBuild, yes: bool, message: str
 ) -> int:
     after = store.preview(project, corrections)
@@ -176,7 +176,7 @@ def _dict_add(args: argparse.Namespace) -> int:
         note=args.note,
         case_sensitive=args.case_sensitive,
     )
-    return _review_and_commit(project, corrections, before, args.yes, f"added dictionary entry {entry.id}")
+    return review_and_commit(project, corrections, before, args.yes, f"added dictionary entry {entry.id}")
 
 
 def _dict_list(args: argparse.Namespace) -> int:
@@ -194,7 +194,7 @@ def _dict_remove(args: argparse.Namespace) -> int:
     corrections = load_corrections(project)
     before = store.preview(project, corrections)
     store.remove_entry(corrections, "dictionary", args.id)
-    return _review_and_commit(project, corrections, before, True, f"removed dictionary entry {args.id}")
+    return review_and_commit(project, corrections, before, True, f"removed dictionary entry {args.id}")
 
 
 def _override_add(args: argparse.Namespace) -> int:
@@ -211,7 +211,7 @@ def _override_add(args: argparse.Namespace) -> int:
         kind=args.kind,
         note=args.note,
     )
-    return _review_and_commit(project, corrections, before, args.yes, f"added override {entry.id}")
+    return review_and_commit(project, corrections, before, args.yes, f"added override {entry.id}")
 
 
 def _override_list(args: argparse.Namespace) -> int:
@@ -235,7 +235,7 @@ def _override_remove(args: argparse.Namespace) -> int:
     corrections = load_corrections(project)
     before = store.preview(project, corrections)
     store.remove_entry(corrections, "override", args.id)
-    return _review_and_commit(project, corrections, before, True, f"removed override {args.id}")
+    return review_and_commit(project, corrections, before, True, f"removed override {args.id}")
 
 
 def _load_pending(corrections: Corrections, project: BookProject, path: Path) -> None:
@@ -315,7 +315,7 @@ def _revert(args: argparse.Namespace) -> int:
     corrections = load_corrections(project)
     before = store.preview(project, corrections)
     store.revert(corrections, args.seq)
-    return _review_and_commit(project, corrections, before, True, f"reverted #{args.seq}")
+    return review_and_commit(project, corrections, before, True, f"reverted #{args.seq}")
 
 
 def _fingerprints(directory: Path) -> dict[str, str]:
