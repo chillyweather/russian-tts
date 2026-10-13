@@ -133,6 +133,7 @@ def test_qwen_engine_reports_the_cached_revision_before_load() -> None:
     commit = "c" * 40
     repo_dir = Path(constants.HF_HUB_CACHE) / "models--mlx-community--Qwen3-TTS-12Hz-1.7B-Base-8bit"
     (repo_dir / "snapshots" / commit).mkdir(parents=True)
+    (repo_dir / "snapshots" / commit / "config.json").write_text("{}")
     (repo_dir / "refs").mkdir()
     (repo_dir / "refs" / "main").write_text(commit)
 

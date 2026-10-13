@@ -13,12 +13,16 @@ _COMMIT_HASH = re.compile(r"^[0-9a-f]{40}$")
 
 
 def resolve_revision(repo: str) -> str:
-    from huggingface_hub import snapshot_download
+    # mlx-audio downloads only the files it needs, so a "complete snapshot" check would fail;
+    # the commit is the snapshot directory that holds the cached config.
+    from huggingface_hub import try_to_load_from_cache
 
-    snapshot = snapshot_download(repo, local_files_only=True)
-    commit = snapshot.rstrip("/").split("/")[-1]
+    cached = try_to_load_from_cache(repo, "config.json")
+    if not isinstance(cached, str):
+        raise RuntimeError(f"{repo} is not in the local Hugging Face cache")
+    commit = cached.rstrip("/").split("/")[-2]
     if not _COMMIT_HASH.match(commit):
-        raise RuntimeError(f"could not resolve a commit hash for {repo}: {snapshot}")
+        raise RuntimeError(f"could not resolve a commit hash for {repo}: {cached}")
     return commit
 
 
