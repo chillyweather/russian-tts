@@ -63,6 +63,27 @@ A book project is a self-contained directory: `source/original.txt` (byte-identi
 - `render` exits with code 1 on a fatal runtime error (for example out of memory), leaving the project resumable. `assemble` writes `<chapter>.incomplete.wav` and exits with code 1 when chunks are missing or failed, printing each one.
 - `book status` reads progress from disk: completed, reused, remaining and failed chunks, elapsed and cumulative time, recent failures and chunks needing review. Run state is in `chunks/<chapter>/<target>/run.json`.
 
+## Full-book generation
+
+`book generate` renders every included chapter in source order with one engine instance, loaded once for the whole job and unloaded at the end. Its state lives in `job/` inside the project.
+
+```sh
+.venv/bin/rutts book generate books/novel --engine qwen-mlx --precision bf16 --target short --offline --assemble
+.venv/bin/rutts book generate books/novel --engine qwen-mlx --chapters c002,c003
+.venv/bin/rutts book generate books/novel --engine qwen-mlx --from c002 --retry-failed
+.venv/bin/rutts book job-status books/novel
+.venv/bin/rutts book check-portable books/novel
+```
+
+- The first run freezes the engine config, narrator hash, target, chunk limits, retry budget and resource thresholds in `job/job.json`. A later run with a different engine, precision, narrator or target exits with code 2 and names each differing field; `--accept-config-change` supersedes the old configuration (kept in `superseded_configs`) and regenerates the affected chunks.
+- Chapters that are already valid are verified by fingerprint and not re-rendered; a fully valid book never loads the engine. Excluded chapters are skipped and listed with their reasons.
+- `job/state.json` (rewritten after every chunk) holds the status (`running`, `completed`, `incomplete`, `interrupted`, `stopped_resource_pressure`, `failed`), per-chapter counts and failed chunk ids, cumulative elapsed time, the last 10 failures, observed throughput and the resource summary. A time-left estimate appears only after three chunks have been rendered in the job, computed from measured render seconds per character.
+- `job/coverage.json` is rebuilt at the end of every invocation: each source segment with its inclusion or exclusion reason, covering chunk ids, their status and audio hash, totals, the uncovered segments and `complete`.
+- Each chunk is preceded and followed by a resource sample (`job/resources.jsonl`). Swap above `--max-swap-gb` (default 4), free memory below `--min-free-percent` (default 5) on two consecutive samples, or peak RSS above `--max-rss-gb` (default 13) stops the job before the next chunk with exit code 3 and writes `job/diagnostics/<timestamp>.json`. Metrics that cannot be read are logged as `unavailable` and never stop the job. An engine memory error also stops with exit code 3.
+- Ctrl-C leaves the project resumable with state `interrupted` and exit code 130. Re-running the same command continues from the first chunk that is not valid, across chapter boundaries.
+- Exit codes: 0 complete, 1 incomplete (failed chunks are listed; the others continue), 2 refused, 3 stopped for resource pressure, 130 interrupted.
+- `book check-portable` verifies that no project file stores an absolute path or a path outside the project. Model weights are referenced by repository id and revision only, so a moved project resumes without re-rendering.
+
 ## EPUB import
 
 `rutts book import book.epub --out book/ --footnotes omit|chapter-end|inline` creates a book project from an EPUB.

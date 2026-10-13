@@ -21,6 +21,7 @@ from rutts.book.chunking import TARGET_SECONDS, limits_for_target, plan_chunks
 from rutts.book.epub_import import POLICIES, build_epub, import_epub, is_epub, set_footnote_policy
 from rutts.book.project import install_narrator, load_project, read_json
 from rutts.book.render import MANIFEST_FILE, ConfigChangeRequired, render_chapter, summarize_targets
+from rutts.book.job_cli import add_job_parser
 from rutts.book.runstate import read_run_state, status_lines
 from rutts.book.text_import import import_text
 from rutts.engines import base
@@ -163,6 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_assist_parser(book_commands)
     add_verification_parser(book_commands)
     add_review_parser(book_commands)
+    add_job_parser(book_commands)
     add_eval_parser(commands)
     return parser
 
@@ -365,7 +367,7 @@ def _book_boundary(args: argparse.Namespace) -> int:
     else:
         included = args.book_command == "include"
         if args.chapter is not None:
-            set_chapter_included(project, args.chapter, included)
+            set_chapter_included(project, args.chapter, included, reason=getattr(args, "reason", None))
             print(f"{args.chapter} {'included' if included else 'excluded'}")
         else:
             set_segment_included(project, args.segment, included, reason=getattr(args, "reason", None))

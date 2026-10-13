@@ -5,7 +5,7 @@ import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 import soundfile as sf
@@ -38,6 +38,21 @@ MEMORY_EXHAUSTION_MARKERS = ("out of memory", "insufficient memory", "outofmemor
 
 class ConfigChangeRequired(ValidationError):
     """The engine or narrator differs from the one that rendered the chapter."""
+
+
+class StopRequested(Exception):
+    """Raised by an observer to end the run after the chunk in hand; the run status is ``status``."""
+
+    def __init__(self, status: str, reasons: list[str]) -> None:
+        super().__init__("; ".join(reasons))
+        self.status = status
+        self.reasons = reasons
+
+
+class ChunkObserver(Protocol):
+    def before_chunk(self, chunk: Chunk) -> None: ...
+
+    def after_chunk(self, chunk: Chunk, record: dict[str, Any], seconds: float) -> None: ...
 
 
 def is_fatal(exc: BaseException) -> bool:
@@ -265,10 +280,13 @@ def _render_pending(
     run: RunTracker,
     retries: int,
     progress: Callable[[str], None] | None,
+    observer: ChunkObserver | None,
 ) -> None:
     manifest_path = directory / MANIFEST_FILE
     for index in pending:
         chunk, record = chunks[index], records[index]
+        if observer is not None:
+            observer.before_chunk(chunk)
         run.current_chunk = chunk.id
         started = run.elapsed()
         _attempt_chunk(engine, profile, chunk, record, directory, retries)
@@ -276,8 +294,10 @@ def _render_pending(
         if record["status"] == "failed":
             run.record_failure(chunk.id, str(record["attempts"][-1]["error"]))
         document = run.save(records, "running")
+        seconds = run.elapsed() - started
+        if observer is not None:
+            observer.after_chunk(chunk, record, seconds)
         if progress is not None:
-            seconds = run.elapsed() - started
             progress(
                 f"{chunk.id} {index + 1}/{len(chunks)} {record['status']} {seconds:.1f}s  "
                 f"| reused {document['reused']} | failed {document['failed']} "
@@ -355,6 +375,7 @@ def render_chapter(
     retries: int = 2,
     retry_failed: bool = False,
     progress: Callable[[str], None] | None = None,
+    observer: ChunkObserver | None = None,
 ) -> dict[str, Any]:
     """Synthesize the planned chunks of a chapter, reusing valid work and saving each success as it completes."""
     chapter = project.read_source().chapter(chapter_id)
@@ -403,10 +424,14 @@ def render_chapter(
         if pending:
             engine.load()
             loaded = True
-        _render_pending(engine, profile, chunks, records, pending, directory, manifest, run, retries, progress)
+        _render_pending(engine, profile, chunks, records, pending, directory, manifest, run, retries, progress, observer)
     except KeyboardInterrupt:
         write_json(directory / MANIFEST_FILE, manifest)
         run.save(records, "interrupted")
+        raise
+    except StopRequested as exc:
+        write_json(directory / MANIFEST_FILE, manifest)
+        run.save(records, exc.status)
         raise
     except BaseException:
         write_json(directory / MANIFEST_FILE, manifest)

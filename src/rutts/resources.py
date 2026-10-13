@@ -76,6 +76,11 @@ def _snapshot() -> dict[str, Any]:
     }
 
 
+def sample() -> dict[str, Any]:
+    """Current process and machine measurements; any metric that cannot be read is UNAVAILABLE."""
+    return _snapshot()
+
+
 @contextmanager
 def measure() -> Iterator[ResourceSample]:
     """Measure one render. Metrics are sampled when the block exits."""

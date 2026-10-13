@@ -48,7 +48,7 @@ def _chunk_audio_path(chunk: Chunk, record: dict[str, Any] | None, directory: Pa
     return path
 
 
-def _chunk_status(chunk: Chunk, record: dict[str, Any] | None, directory: Path) -> str:
+def chunk_status(chunk: Chunk, record: dict[str, Any] | None, directory: Path) -> str:
     if record is None or record["text_sha256"] != sha256_text(chunk.text):
         return "missing"
     if record["status"] == "failed":
@@ -70,7 +70,7 @@ def _signature(chunks: list[Chunk], records: dict[str, dict[str, Any]], director
     signature: dict[str, list[str | None]] = {}
     for chunk in chunks:
         record = records.get(chunk.id)
-        audio = record["audio_sha256"] if record and _chunk_status(chunk, record, directory) == "ok" else None
+        audio = record["audio_sha256"] if record and chunk_status(chunk, record, directory) == "ok" else None
         signature[chunk.id] = [sha256_text(chunk.text), audio]
     return signature
 
@@ -107,7 +107,7 @@ def assemble_chapter(
     chunks = planned_chunks(project, chapter_id, target, manifest)
     records = {record["id"]: record for record in manifest["chunks"]}
 
-    statuses = {chunk.id: _chunk_status(chunk, records.get(chunk.id), directory) for chunk in chunks}
+    statuses = {chunk.id: chunk_status(chunk, records.get(chunk.id), directory) for chunk in chunks}
     loaded: dict[str, tuple[np.ndarray, int]] = {}
     for chunk in chunks:
         if statuses[chunk.id] == "ok":

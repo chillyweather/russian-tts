@@ -60,11 +60,13 @@ def rename_chapter(project: BookProject, chapter_id: str, title: str) -> None:
     _save(project, source)
 
 
-def set_chapter_included(project: BookProject, chapter_id: str, included: bool) -> None:
+def set_chapter_included(
+    project: BookProject, chapter_id: str, included: bool, reason: str | None = None
+) -> None:
     source = project.read_source()
     chapter = source.chapter(chapter_id)
     chapter.included = included
-    chapter.exclusion_reason = None if included else DEFAULT_REASON
+    chapter.exclusion_reason = None if included else (reason or DEFAULT_REASON)
     _save(project, source)
 
 
