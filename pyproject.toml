@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rutts"
+version = "0.1.0"
+description = "Local Russian audiobook narration"
+requires-python = ">=3.12"
+dependencies = ["numpy", "soundfile"]
+
+[project.optional-dependencies]
+mlx = ["mlx-audio==0.5.8"]
+dev = ["pytest", "mypy"]
+
+[project.scripts]
+rutts = "rutts.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+rutts = ["data/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["local_model: needs downloaded model weights; deselected by default"]
+addopts = "-m 'not local_model' -q"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+strict = true
+ignore_missing_imports = true
